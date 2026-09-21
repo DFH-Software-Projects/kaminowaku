@@ -889,7 +889,7 @@ Release-level changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-See [LICENSE.txt](LICENSE.txt) for the current license terms.
+Kaminowaku is licensed under the [BSD 3-Clause License](LICENSE.txt). Responsible-use expectations are documented separately in the [Acceptable Use Policy](AUP.md).
 
 ## Support
 

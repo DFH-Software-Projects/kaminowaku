@@ -139,7 +139,7 @@ Good community Book ideas include:
 
 Books intended primarily for exploitation, credential attacks, persistence, destructive behavior, malware delivery, or unauthorized access are outside the scope of the official project.
 
-All submissions should remain consistent with the project's [license and Acceptable Use Policy](LICENSE.txt).
+All submissions should remain consistent with the project's [license](LICENSE.txt) and [Acceptable Use Policy](AUP.md).
 
 ## Testing expectations
 
