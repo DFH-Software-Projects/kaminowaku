@@ -1,0 +1,329 @@
+NOSIX PROPRIETARY BINARY LICENSE
+
+Copyright (c) 2026 Jamison A. Drapeau
+All Rights Reserved.
+
+1. DEFINITIONS
+
+"NOSIX" means the NOSIX networking library and all associated software, including compiled libraries, object code, public interface headers, documentation, interfaces, application programming interfaces (APIs), application binary interfaces (ABIs), and related materials distributed by the Copyright Holder.
+
+"Binary" means any compiled or machine-readable form of NOSIX, including shared libraries, static libraries, object files, or other executable or linkable forms.
+
+"Public Interface" means headers, declarations, structures, constants, function prototypes, documentation, and other materials expressly designated by the Copyright Holder for use by authorized software linking against NOSIX.
+
+"Source Code" means the undistributed human-readable implementation of NOSIX, including implementation files, private headers, internal build logic, backend code, internal documentation, algorithms, and related materials.
+
+"Kaminowaku" means the software product distributed under the name Kaminowaku by, or with the authorization of, the Copyright Holder.
+
+"Commercial Use" means use primarily intended for commercial advantage, monetary compensation, revenue generation, paid service delivery, resale, commercial product development, or other for-profit activity.
+
+"Software" means NOSIX collectively in any form distributed by the Copyright Holder.
+
+2. OWNERSHIP
+
+NOSIX is proprietary software.
+
+All right, title, and interest in and to NOSIX, including its Source Code, binaries, architecture, implementation, interfaces, documentation, algorithms, backend implementations, intellectual property, copyrights, and derivative works created by or for the Copyright Holder, are owned exclusively by Jamison A. Drapeau unless expressly assigned in writing.
+
+Possession of a NOSIX Binary, Public Interface header, documentation, or other distributed material does not transfer ownership of NOSIX or any associated intellectual property.
+
+All rights not expressly granted under this License are reserved.
+
+3. SOURCE CODE NOT DISTRIBUTED
+
+NOSIX Source Code is private and is not distributed under this License.
+
+No license to access, receive, possess, use, modify, reproduce, publish, or distribute NOSIX Source Code is granted.
+
+Distribution of a NOSIX Binary or Public Interface does not create any right or entitlement to obtain the corresponding Source Code.
+
+The Copyright Holder has no obligation to disclose, publish, escrow, provide, or otherwise make NOSIX Source Code available.
+
+4. NON-COMMERCIAL LICENSE GRANT
+
+Subject to compliance with this License, the Copyright Holder grants an authorized recipient a limited, non-exclusive, non-transferable, revocable license to:
+
+a. Install and use authorized NOSIX Binaries for personal, educational, academic, research, evaluation, testing, experimentation, and other non-commercial purposes;
+
+b. Develop, compile, execute, and test non-commercial software using the NOSIX Public Interface;
+
+c. Link authorized non-commercial software against an authorized NOSIX Binary;
+
+d. Use the Public Interface for interoperability and development consistent with this License; and
+
+e. Make reasonable internal backup copies of lawfully obtained NOSIX Binaries and Public Interface materials.
+
+No commercial rights are granted except as expressly provided in Section 5.
+
+5. KAMINOWAKU COMMERCIAL-USE EXCEPTION
+
+NOSIX may be used for Commercial Use when it is used as an authorized component of Kaminowaku.
+
+This exception applies only where:
+
+a. NOSIX is installed, loaded, linked, invoked, packaged, or otherwise used as part of an authorized version of Kaminowaku;
+
+b. The Kaminowaku software has been distributed, licensed, or otherwise authorized by the Copyright Holder or a lawful successor or assignee;
+
+c. NOSIX is not independently marketed, sold, licensed, sublicensed, redistributed, or provided as a standalone commercial product;
+
+d. NOSIX is not extracted or repurposed for use by another commercial product, application, service, framework, or platform; and
+
+e. The use complies with all applicable Kaminowaku license terms.
+
+Commercial authorization for Kaminowaku does not grant commercial rights to NOSIX independently of Kaminowaku.
+
+6. OTHER COMMERCIAL USE PROHIBITED
+
+Except for the Kaminowaku exception in Section 5 or separate express written authorization from the Copyright Holder, Commercial Use of NOSIX is prohibited.
+
+Prohibited Commercial Use includes, without limitation:
+
+a. Linking a commercial application other than authorized Kaminowaku software against NOSIX;
+
+b. Incorporating NOSIX into another commercial product or platform;
+
+c. Using NOSIX to provide paid consulting, managed services, hosted services, security services, scanning services, Software-as-a-Service offerings, or other revenue-generating services;
+
+d. Using NOSIX as part of internal commercial infrastructure or business operations;
+
+e. Selling, leasing, sublicensing, renting, or commercially distributing NOSIX;
+
+f. Charging for access to functionality substantially dependent upon NOSIX;
+
+g. Using NOSIX to develop another commercial networking or cybersecurity product; or
+
+h. Embedding or integrating NOSIX into another commercial application.
+
+Separate commercial rights may be granted only through written authorization from the Copyright Holder.
+
+7. PUBLIC INTERFACE
+
+The NOSIX Public Interface is provided solely to permit authorized software to communicate with NOSIX through its documented API and ABI.
+
+Availability of the Public Interface does not constitute disclosure of NOSIX Source Code and does not make NOSIX open-source or source-available software.
+
+The Public Interface may be copied and included as reasonably necessary to compile authorized software against NOSIX, provided that:
+
+a. Copyright and proprietary notices are preserved;
+
+b. The Public Interface is not represented as independently authored;
+
+c. Its use complies with the commercial and non-commercial restrictions of this License; and
+
+d. Such copying does not include or attempt to reproduce NOSIX implementation code.
+
+Software independently written against the NOSIX Public Interface remains separate from NOSIX.
+
+However, permission to execute that software using NOSIX remains subject to this License.
+
+8. BINARY REDISTRIBUTION
+
+NOSIX Binaries may not be redistributed, mirrored, hosted, repackaged, sublicensed, sold, transferred, bundled, or otherwise provided to third parties except with express written authorization from the Copyright Holder.
+
+An authorized Kaminowaku distribution may include, install, retrieve, or otherwise provide an authorized NOSIX Binary where permitted by the Copyright Holder.
+
+The inclusion of NOSIX in Kaminowaku does not authorize:
+
+a. Extraction of NOSIX for independent use;
+
+b. Redistribution of NOSIX separately from Kaminowaku;
+
+c. Repackaging NOSIX into another software product; or
+
+d. Use of NOSIX by another commercial application.
+
+9. REVERSE ENGINEERING
+
+Except to the extent such restrictions are prohibited by applicable law, you may not:
+
+a. Reverse engineer NOSIX;
+
+b. Decompile or disassemble a NOSIX Binary;
+
+c. Translate, decode, or otherwise attempt to recover NOSIX Source Code;
+
+d. Attempt to reconstruct NOSIX private structures, algorithms, implementation logic, or backend behavior for the purpose of reproducing NOSIX;
+
+e. Circumvent technical measures intended to protect NOSIX internals;
+
+f. Extract proprietary implementation details for use in another product; or
+
+g. Create a substantially equivalent implementation based upon proprietary NOSIX implementation details obtained through unauthorized analysis.
+
+Nothing in this section prohibits ordinary use of the documented Public Interface or interoperability activities that applicable law expressly requires to be permitted.
+
+10. MODIFICATION
+
+Modification of NOSIX Binaries is not authorized.
+
+You may not patch, alter, modify, transform, instrument, rewrite, or otherwise create modified versions of NOSIX except where expressly authorized in writing by the Copyright Holder.
+
+Configuration and ordinary runtime interaction through documented NOSIX interfaces do not constitute modification.
+
+11. NO OPEN-SOURCE OR SOURCE-AVAILABLE LICENSE
+
+NOSIX is neither open-source software nor source-available software.
+
+NOSIX is not licensed under the MIT License, BSD licenses, Apache License, GPL, LGPL, MPL, or any other open-source or free-software license unless a specific separately distributed component expressly states otherwise.
+
+Distribution of:
+
+a. NOSIX Binaries;
+
+b. Public Interface headers;
+
+c. API documentation;
+
+d. ABI documentation; or
+
+e. other public development materials
+
+does not constitute publication or licensing of NOSIX Source Code.
+
+No rights are granted by implication, estoppel, or otherwise beyond those expressly stated in this License.
+
+12. COPYRIGHT AND PROPRIETARY NOTICES
+
+You may not remove, alter, obscure, suppress, or misrepresent any copyright notice, license notice, product identifier, authorship notice, or proprietary notice contained within NOSIX or its distributed materials.
+
+NOSIX may include embedded copyright, version, integrity, or product-identification information.
+
+13. THIRD-PARTY SOFTWARE
+
+NOSIX may interact with operating systems, system libraries, networking facilities, hardware interfaces, development tools, or other third-party software.
+
+Such third-party materials remain subject to their respective licenses.
+
+Nothing in this License grants rights to third-party intellectual property.
+
+14. TRADEMARKS AND PRODUCT IDENTITY
+
+This License does not grant permission to use the NOSIX name, Kaminowaku name, associated logos, branding, product identity, or the name Jamison A. Drapeau to endorse, promote, certify, or imply sponsorship of another product or service.
+
+Accurate factual statements identifying NOSIX as a software dependency are permitted where the underlying use of NOSIX is authorized.
+
+15. SECURITY AND AUTHORIZED USE
+
+NOSIX provides low-level networking capabilities and may permit authorized software to construct, transmit, receive, inspect, or manipulate network traffic.
+
+You are solely responsible for ensuring that your use of NOSIX complies with applicable laws, contracts, authorization boundaries, rules of engagement, policies, and third-party rights.
+
+This License does not grant permission or authorization to access, scan, test, interfere with, disrupt, or transmit traffic to systems or networks for which you do not otherwise possess lawful authorization.
+
+16. NO WARRANTY
+
+NOSIX IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER DISCLAIMS ALL WARRANTIES, INCLUDING IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, RELIABILITY, SECURITY, AVAILABILITY, COMPATIBILITY, AND CORRECTNESS.
+
+THE COPYRIGHT HOLDER DOES NOT WARRANT THAT NOSIX WILL BE ERROR-FREE, UNINTERRUPTED, SECURE, COMPATIBLE WITH ANY PARTICULAR PLATFORM, OR SUITABLE FOR ANY PARTICULAR NETWORK OR SECURITY OPERATION.
+
+17. LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, CONSEQUENTIAL, PUNITIVE, OR OTHER DAMAGES ARISING FROM OR RELATED TO NOSIX OR ITS USE.
+
+THIS INCLUDES, WITHOUT LIMITATION:
+
+a. Loss of data;
+
+b. Loss of profits or revenue;
+
+c. Business interruption;
+
+d. System failure;
+
+e. Network disruption;
+
+f. Security incidents;
+
+g. Loss of goodwill; or
+
+h. Claims by third parties.
+
+These limitations apply regardless of the theory of liability and even where the possibility of such damages was known.
+
+18. TERMINATION
+
+Rights granted under this License terminate automatically upon material violation of its terms.
+
+Upon termination, you must cease unauthorized use of NOSIX and delete or destroy copies that you are no longer authorized to retain.
+
+Ownership provisions, Source Code restrictions, commercial-use restrictions, reverse-engineering restrictions, warranty disclaimers, limitations of liability, and provisions that by their nature survive termination shall remain effective.
+
+19. SEPARATE COMMERCIAL LICENSING
+
+The Copyright Holder may grant additional rights under separate written agreements, including:
+
+a. Commercial licenses;
+
+b. Enterprise licenses;
+
+c. OEM or embedding licenses;
+
+d. Redistribution licenses;
+
+e. Development licenses;
+
+f. Government licenses; or
+
+g. Other specifically negotiated permissions.
+
+No such rights should be inferred from possession of NOSIX, access to its Public Interface, availability of a Binary, or authorization to use Kaminowaku.
+
+Where a separate written agreement expressly conflicts with this License, the separate written agreement governs the parties subject to that agreement.
+
+20. OWNERSHIP TRANSFER AND SUCCESSORS
+
+Copyright (c) 2026 Jamison A. Drapeau.
+All Rights Reserved.
+
+The Copyright Holder may assign or transfer ownership of NOSIX and its associated intellectual property through a written assignment.
+
+A lawful successor or assignee may exercise the rights reserved to the Copyright Holder under this License, including authority to:
+
+a. License NOSIX;
+
+b. Authorize Kaminowaku distributions;
+
+c. Grant commercial rights;
+
+d. Control NOSIX Source Code;
+
+e. Enforce this License; and
+
+f. Publish revised licensing terms.
+
+21. SEVERABILITY
+
+If any provision of this License is held invalid or unenforceable, that provision shall be enforced to the maximum extent legally permissible and the remaining provisions shall remain in effect.
+
+22. NO WAIVER
+
+Failure by the Copyright Holder to enforce any provision of this License does not constitute a waiver of that provision or any other right.
+
+23. ACCEPTANCE
+
+By installing, copying, accessing, linking against, executing, or otherwise using NOSIX, you acknowledge that:
+
+a. NOSIX is proprietary software;
+
+b. NOSIX Source Code is private and undistributed;
+
+c. Your rights are limited to those expressly granted by this License; and
+
+d. Commercial use is prohibited except through authorized Kaminowaku use or separate written permission.
+
+If you do not agree to these terms, you are not authorized to use NOSIX.
+
+============================================================
+NOSIX
+Copyright (c) 2026 Jamison A. Drapeau
+PROPRIETARY BINARY SOFTWARE
+
+NON-COMMERCIAL USE ONLY
+EXCEPT AS AUTHORIZED FOR KAMINOWAKU
+
+SOURCE CODE NOT DISTRIBUTED
+
+# All Rights Reserved.
