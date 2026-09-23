@@ -4,6 +4,7 @@
 #include "helpers.h"
 #include "kui.h"
 #include "kportdisplay.h"
+#include "ktargetdisplay_args.h"
 #include "kscan.h"
 #include "book_persist.h"
 #include <arpa/inet.h>
@@ -902,6 +903,7 @@ void targets_display_from_project(_carry_forward * _prog_data) {
         int8_t OBSERVED_ONLY = ISFALSE;
         int8_t REQUIRE_OPEN_PORT = ISFALSE;
         unsigned int FILTER_PORT = 0U;
+        KTARGETDISPLAY_ARGS ARGS = {0};
 
         if (
                 !_prog_data
@@ -911,45 +913,61 @@ void targets_display_from_project(_carry_forward * _prog_data) {
                 return;
         }
 
-        if (_prog_data->cmd_tokens_count == 3) {
-                if (strcmp((char*)_prog_data->cmd_tokens[2], "-d") == MATCH) {
+        if (
+                ktargetdisplay_parse_args(
+                        _prog_data->cmd_tokens,
+                        (size_t)_prog_data->cmd_tokens_count,
+                        &ARGS
+                ) != NORMAL
+        ) {
+                kui_add_line(NOTICE_WARNING "Invalid display option or port expression.");
+                kui_add_line("< Usage: targets display [ -d | -o | -p <ports>... | -b <ports>... ]");
+                return;
+        }
+
+        switch (ARGS.MODE) {
+                case KTARGETDISPLAY_ARG_COMPACT:
+                        break;
+
+                case KTARGETDISPLAY_ARG_DETAIL_ALL:
                         PORT_MODE = KPORTDISPLAY_MODE_DETAIL_ALL;
-                } else if (strcmp((char*)_prog_data->cmd_tokens[2], "-o") == MATCH) {
+                        break;
+
+                case KTARGETDISPLAY_ARG_OBSERVED:
                         PORT_MODE = KPORTDISPLAY_MODE_OBSERVED;
                         OBSERVED_ONLY = ISTRUE;
-                } else {
-                        kui_add_line("< Usage: targets display [ -d | -o | -p <port> | -b <port> ]");
-                        return;
-                }
-        } else if (_prog_data->cmd_tokens_count == 4) {
-                char * END = NULL;
-                unsigned long VALUE;
+                        break;
 
-                VALUE = strtoul((char*)_prog_data->cmd_tokens[3], &END, 10);
-                if (
-                        !END
-                        || *END != 0x00
-                        || VALUE == 0UL
-                        || VALUE >= MAX_PORTS
-                ) {
-                        kui_add_line(NOTICE_WARNING "Port must be between 1 and 65535.");
-                        return;
-                }
+                case KTARGETDISPLAY_ARG_PORT_COMPACT:
+                case KTARGETDISPLAY_ARG_PORT_DETAIL_OPEN:
+                        REQUIRE_OPEN_PORT = ISTRUE;
+                        PORT_MODE = ARGS.MODE == KTARGETDISPLAY_ARG_PORT_DETAIL_OPEN
+                                ? KPORTDISPLAY_MODE_DETAIL_OPEN
+                                : KPORTDISPLAY_MODE_COMPACT;
 
-                FILTER_PORT = (unsigned int)VALUE;
-                REQUIRE_OPEN_PORT = ISTRUE;
+                        // Staged compatibility: preserve exact single-port behavior
+                        // until bitmap selection/rendering is integrated in Phases 4-5.
+                        if (ARGS.PORTS.count != 1U) {
+                                kui_add_line(
+                                        NOTICE_INFO
+                                        "Port range/list syntax accepted; multi-port display "
+                                        "is pending Patch 2 Phases 4-5."
+                                );
+                                return;
+                        }
 
-                if (strcmp((char*)_prog_data->cmd_tokens[2], "-p") == MATCH) {
-                        PORT_MODE = KPORTDISPLAY_MODE_COMPACT;
-                } else if (strcmp((char*)_prog_data->cmd_tokens[2], "-b") == MATCH) {
-                        PORT_MODE = KPORTDISPLAY_MODE_DETAIL_OPEN;
-                } else {
-                        kui_add_line("< Usage: targets display [ -d | -o | -p <port> | -b <port> ]");
-                        return;
-                }
-        } else if (_prog_data->cmd_tokens_count != 2) {
-                kui_add_line("< Usage: targets display [ -d | -o | -p <port> | -b <port> ]");
-                return;
+                        for (unsigned int PORT = 1U; PORT < MAX_PORTS; PORT++) {
+                                if (kportspec_contains(&ARGS.PORTS, PORT) == ISTRUE) {
+                                        FILTER_PORT = PORT;
+                                        break;
+                                }
+                        }
+
+                        if (FILTER_PORT == 0U) {
+                                kui_add_line(NOTICE_WARNING "Invalid port selection.");
+                                return;
+                        }
+                        break;
         }
 
         CYCLER = _prog_data->active_project_flower->NEXT;
