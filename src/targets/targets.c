@@ -902,7 +902,6 @@ void targets_display_from_project(_carry_forward * _prog_data) {
         KPORTDISPLAY_MODE PORT_MODE = KPORTDISPLAY_MODE_COMPACT;
         int8_t OBSERVED_ONLY = ISFALSE;
         int8_t REQUIRE_OPEN_PORT = ISFALSE;
-        unsigned int FILTER_PORT = 0U;
         KTARGETDISPLAY_ARGS ARGS = {0};
 
         if (
@@ -945,28 +944,6 @@ void targets_display_from_project(_carry_forward * _prog_data) {
                                 ? KPORTDISPLAY_MODE_DETAIL_OPEN
                                 : KPORTDISPLAY_MODE_COMPACT;
 
-                        // Staged compatibility: preserve exact single-port behavior
-                        // until bitmap selection/rendering is integrated in Phases 4-5.
-                        if (ARGS.PORTS.count != 1U) {
-                                kui_add_line(
-                                        NOTICE_INFO
-                                        "Port range/list syntax accepted; multi-port display "
-                                        "is pending Patch 2 Phases 4-5."
-                                );
-                                return;
-                        }
-
-                        for (unsigned int PORT = 1U; PORT < MAX_PORTS; PORT++) {
-                                if (kportspec_contains(&ARGS.PORTS, PORT) == ISTRUE) {
-                                        FILTER_PORT = PORT;
-                                        break;
-                                }
-                        }
-
-                        if (FILTER_PORT == 0U) {
-                                kui_add_line(NOTICE_WARNING "Invalid port selection.");
-                                return;
-                        }
                         break;
         }
 
@@ -1078,7 +1055,7 @@ void targets_display_from_project(_carry_forward * _prog_data) {
                         _prog_data,
                         CYCLER->TID,
                         PORT_MODE,
-                        FILTER_PORT
+                        REQUIRE_OPEN_PORT == ISTRUE ? &ARGS.PORTS : NULL
                 );
 
                 free(TMP_TARGET);
@@ -1166,7 +1143,7 @@ void targets_display_from_context(_carry_forward * _prog_data) {
                 _prog_data,
                 _prog_data->active_project_active_target->TID,
                 KPORTDISPLAY_MODE_DETAIL_OPEN,
-                0U
+                NULL
         );
 
         if (

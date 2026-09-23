@@ -16,7 +16,7 @@ void kportdisplay_target(
         _carry_forward * _prog_data,
         const unsigned char * TID,
         KPORTDISPLAY_MODE MODE,
-        unsigned int FILTER_PORT
+        const KPORT_SPEC * FILTER_PORTS
 );
 
 int8_t kportdisplay_has_open_tcp_ports(

@@ -1,5 +1,6 @@
 // Copyright 2026 Jamison A. Drapeau
 #include "kportdisplay.h"
+#include "kportfilter.h"
 #include "kportscan.h"
 #include "kportselect.h"
 #include "kbanner.h"
@@ -277,7 +278,7 @@ void kportdisplay_target(
         _carry_forward * _prog_data,
         const unsigned char * TID,
         KPORTDISPLAY_MODE MODE,
-        unsigned int FILTER_PORT
+        const KPORT_SPEC * FILTER_PORTS
 ) {
         char PATH[MAX_PATH];
         char LINE[512];
@@ -291,7 +292,7 @@ void kportdisplay_target(
         if (
                 !_prog_data
                 || !TID
-                || FILTER_PORT >= MAX_PORTS
+                || (FILTER_PORTS && FILTER_PORTS->count == 0U)
         ) {
                 return;
         }
@@ -384,6 +385,14 @@ void kportdisplay_target(
                         PROTOCOL_INDEX < 0
                         || FAMILY_INDEX < 0
                         || PARSED_STATE == KPORTSCAN_STATE_UNKNOWN
+                        || (
+                                FILTER_PORTS
+                                && kportfilter_slot_included(
+                                        FILTER_PORTS,
+                                        (unsigned int)PROTOCOL_INDEX,
+                                        PORT
+                                ) != ISTRUE
+                        )
                 ) {
                         continue;
                 }
@@ -411,28 +420,6 @@ void kportdisplay_target(
         }
 
         fclose(FILE_HANDLE);
-
-        if (FILTER_PORT != 0U) {
-                for (unsigned int PROTOCOL = 0; PROTOCOL < KPORTDISPLAY_PROTOCOLS; PROTOCOL++) {
-                        for (unsigned int PORT = 1; PORT < MAX_PORTS; PORT++) {
-                                for (unsigned int FAMILY = 0; FAMILY < KPORTDISPLAY_FAMILIES; FAMILY++) {
-                                        KPORTDISPLAY_SLOT * SLOT = &SLOTS[
-                                                kportdisplay_index(PROTOCOL, FAMILY, PORT)
-                                        ];
-
-                                        if (
-                                                SLOT->PRESENT == ISTRUE
-                                                && (
-                                                        PROTOCOL != 0U
-                                                        || PORT != FILTER_PORT
-                                                )
-                                        ) {
-                                                SLOT->PRESENT = ISFALSE;
-                                        }
-                                }
-                        }
-                }
-        }
 
         if (MODE == KPORTDISPLAY_MODE_OBSERVED) {
                 for (unsigned int PROTOCOL = 0; PROTOCOL < KPORTDISPLAY_PROTOCOLS; PROTOCOL++) {
