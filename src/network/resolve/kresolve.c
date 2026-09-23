@@ -638,6 +638,7 @@ static int dns_query(
         nosix_status_t STATUS;
         struct timespec TIME_START;
         struct timespec TIME_NOW;
+        KWIRE_DEADLINE RX_DEADLINE;
         const uint8_t *DNS_PAYLOAD;
         size_t DNS_PAYLOAD_LENGTH;
         size_t THROW_LENGTH;
@@ -704,6 +705,9 @@ static int dns_query(
                 TIMEOUT_MS = 1;
         }
 
+        if (kwire_deadline_start(&RX_DEADLINE, TIMEOUT_MS) != NORMAL) {
+                return RESOLVE_ERROR;
+        }
         clock_gettime(CLOCK_MONOTONIC, &TIME_START);
 
         TX_FRAME_LENGTH = 0;
@@ -766,10 +770,8 @@ static int dns_query(
                 CAPTURE.interface_index = 0;
                 CAPTURE.flags = 0;
 
-                STATUS = kwire_read(
-                        _prog_data,
-                        PCAP,
-                        &CAPTURE
+                STATUS = kwire_read_until(
+                        _prog_data, PCAP, &CAPTURE, &RX_DEADLINE
                 );
 
                 if (STATUS == NOSIX_TIMEOUT) {
