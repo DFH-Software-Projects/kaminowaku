@@ -5,7 +5,7 @@
 #include <nosix.h>
 
 // Version
-#define VERSION "0.1.2"
+#define VERSION "0.1.3"
 
 // System Directories
 #define KAMI_SYSTEM_SHARE_DIR           "/usr/local/share/kaminowaku"
