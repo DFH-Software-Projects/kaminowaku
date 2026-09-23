@@ -383,13 +383,17 @@ targets del -M 00:11:22:33:44:55
 
 `delete` is also accepted in place of `del`.
 
-### Remove unobserved targets
+### Remove targets with confirmed neighbor-resolution failures
 
 ```text
 targets del -n
 ```
 
-This deletes targets with no received-packet observation while preserving targets backed by received network evidence. It is useful after broad CIDR discovery to remove systems that never responded.
+This deletes **only** targets with an explicitly recorded NOSIX neighbor-resolution failure (`NOSIX_ERR_NEIGHBOR`) for **every configured IP address family**, provided there is no recorded ICMP reply or positive port-scan receive evidence. The failure means NOSIX could not resolve the link-layer address of the required **next hop**; it does **not** mean the target simply failed to reply to ICMP.
+
+An ICMP timeout, a generic transmit error, a route failure, an unscanned target, or missing/older scan metadata is **not** sufficient for deletion. For a dual-stack target, both IPv4 and IPv6 must have explicit neighbor-resolution failures; an untested or inconclusive family preserves the entire target. Targets whose stored scan or port data contains received-packet evidence are also preserved. If target data cannot be read, Kaminowaku preserves it rather than deleting blindly.
+
+**Routed-network caution:** neighbor resolution may be for a gateway rather than the destination host. A failure to resolve that gateway does not establish that the remote target is offline. Use `targets del -n` only when its next-hop failure semantics match the cleanup you intend; `targets display -o` remains the non-destructive way to show targets backed by received-packet observations.
 
 ## Target context
 
@@ -808,11 +812,13 @@ resolve
 ping -4
 ```
 
-### 6. Remove unobserved targets
+### 6. Optionally prune confirmed neighbor failures
 
 ```text
 targets del -n
 ```
+
+Only targets with explicit next-hop neighbor-resolution failures across all configured IP families and no recorded reply evidence are deleted. Silent ICMP timeouts and unscanned targets remain; review the [neighbor-failure deletion rules](#remove-targets-with-confirmed-neighbor-resolution-failures) before using this on routed networks.
 
 ### 7. Scan common services
 
