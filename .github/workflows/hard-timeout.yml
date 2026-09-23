@@ -26,3 +26,33 @@ jobs:
           for script in tests/run_*.sh; do sh "$script"; done
       - name: Compile scanner against packaged NOSIX ABI
         run: make OPENSSL_MODE=offline CFLAGS='-std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -pthread' LDFLAGS='-pthread'
+
+  freebsd:
+    name: FreeBSD 14.5 / amd64 (NOSIX + Kaminowaku)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout patched NOSIX
+        uses: actions/checkout@v4
+        with:
+          repository: DFH-Software-Projects/NOSIX
+          ref: fix/hard-receive-deadlines
+          path: native-nosix
+      - name: Build and test patched NOSIX and Kaminowaku natively on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.5"
+          arch: x86_64
+          run: |
+            set -eu
+            freebsd-version
+            uname -a
+            make -C native-nosix clean
+            make -C native-nosix all
+            make -C native-nosix test
+            # Stage the freshly built FreeBSD ABI, not the older checked-in binary.
+            cp native-nosix/build/libnosix.so.1.4.0 libs/nosix/freebsd/lib/
+            cp native-nosix/includes/nosix.h native-nosix/includes/nosix_poll.h native-nosix/includes/nosix_datagram.h libs/nosix/include/
+            for script in tests/run_*.sh; do sh "$script"; done
+            make OPENSSL_MODE=offline CFLAGS='-std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -pthread' LDFLAGS='-pthread'
