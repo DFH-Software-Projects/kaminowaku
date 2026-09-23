@@ -422,6 +422,13 @@ static void ICMP4 ( _carry_forward * _prog_data ) {
                         : " wire bytes"
         );
 
+        KWIRE_DEADLINE RX_DEADLINE;
+        if (kwire_deadline_start(&RX_DEADLINE, _prog_data->gprof.rx_timeout_ms) != NORMAL) {
+                ksping4_record_result(_prog_data, SCAN_RESULT_ERROR);
+                kwire_pcap_close(&PCAP);
+                return;
+        }
+
         // @@ Caller-owned NOSIX capture storage
         uint8_t CATCH[OUT_BLOCK];
         memset(CATCH, 0x00, sizeof(CATCH));
@@ -445,10 +452,8 @@ static void ICMP4 ( _carry_forward * _prog_data ) {
                 CAPTURE.interface_index = 0;
                 CAPTURE.flags = 0;
 
-                STATUS = kwire_read(
-                        _prog_data,
-                        &PCAP,
-                        &CAPTURE
+                STATUS = kwire_read_until(
+                        _prog_data, &PCAP, &CAPTURE, &RX_DEADLINE
                 );
 
                 // @@ NOSIX timeout
