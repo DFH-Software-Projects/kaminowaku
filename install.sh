@@ -54,11 +54,6 @@ NOSIX_ABI_ENV=""
 NOSIX_LINKER_NAME=""
 NOSIX_SONAME_NAME=""
 NOSIX_REAL_NAME=""
-RELEASE_DIR=""
-RELEASE_BIN=""
-RELEASE_MANIFEST=""
-RELEASE_READY=0
-
 usage() {
     echo "Kaminowaku Install Script"
     echo ""
@@ -66,14 +61,14 @@ usage() {
     echo "  ./install.sh [target] [BUILD=debug|release] [--offline|--online]"
     echo ""
     echo "OpenSSL mode:"
-    echo "  --offline  Use the bundled OpenSSL 3.5.8 static libraries and native binary (default)"
+    echo "  --offline  Build current source against bundled OpenSSL 3.5.8 static libraries (default)"
     echo "  --online   Link against system-managed OpenSSL 3; if needed, the install"
     echo "             target may install build dependencies via apt or pkg"
     echo "             (always compiles Kaminowaku; requires clang and make)"
     echo ""
     echo "Targets:"
     echo "  check     Read-only dependency and release-payload validation"
-    echo "  install   Install prebuilt offline binary, or build for selected mode (default)"
+    echo "  install   Clean, compile current source, then install (always)"
     echo "  all       Clean and build only"
     echo "  clean     Remove build artifacts"
     echo "  info      Show build/install configuration"
@@ -94,7 +89,7 @@ usage() {
     echo "  ./install.sh all BUILD=release --offline"
     echo "  sudo ./install.sh install --online"
     echo "  # --online uses apt/pkg ONLY when prerequisites are missing"
-    echo "  # --offline installs without a compiler when a native binary is included"
+    echo "  # --offline never downloads packages and always requires local clang + make"
 }
 
 fail() {
@@ -254,10 +249,10 @@ check_openssl_dependency() {
     echo "[deps] Packaged OpenSSL 3.5.8 ready for $PLATFORM_TAG/$ARCH_TAG"
 }
 
-# A prebuilt native release can be installed without clang or make.
+# Both offline and online installations compile the current source.
 need_toolchain() {
-    command -v make >/dev/null 2>&1 || fail "make not found. Supply a prebuilt native release binary or prepare a build toolchain."
-    command -v clang >/dev/null 2>&1 || fail "clang not found. Supply a prebuilt native release binary or prepare a build toolchain."
+    command -v make >/dev/null 2>&1 || fail "make not found. Both offline and online installation build current source."
+    command -v clang >/dev/null 2>&1 || fail "clang not found. Both offline and online installation build current source."
     CC_VERSION=$(clang --version 2>/dev/null || true)
     echo "$CC_VERSION" | grep -qi clang || fail "clang executable is invalid."
 }
@@ -294,10 +289,6 @@ case "$UNAME_M" in
         CPPFLAGS="$CPPFLAGS -DKMN_ARCH_UNKNOWN"
         ;;
 esac
-
-RELEASE_DIR="./release/$PLATFORM_TAG-$ARCH_TAG"
-RELEASE_BIN="$RELEASE_DIR/bin/kaminowaku"
-RELEASE_MANIFEST="$RELEASE_DIR/BUILD-MANIFEST.txt"
 
 case "$TARGET" in
     check|install|all)
@@ -499,27 +490,6 @@ EOF
     trap - EXIT HUP INT TERM
 }
 
-check_release_binary() {
-    RELEASE_READY=0
-    # An offline static executable must never be reused for an online build:
-    # only a fresh dynamic build tracks system-managed OpenSSL updates.
-    if [ "$OPENSSL_MODE" != offline ] || [ "$BUILD" != release ] || [ ! -s "$RELEASE_BIN" ]; then return 0; fi
-    [ -s "$RELEASE_MANIFEST" ] || fail "Prebuilt release manifest missing: $RELEASE_MANIFEST"
-    grep -Fx "PLATFORM=$PLATFORM_TAG" "$RELEASE_MANIFEST" >/dev/null || fail "Prebuilt binary platform mismatch."
-    grep -Fx "ARCH=$ARCH_TAG" "$RELEASE_MANIFEST" >/dev/null || fail "Prebuilt binary architecture mismatch."
-    grep -Fx 'BUILD=release' "$RELEASE_MANIFEST" >/dev/null || fail "Prebuilt binary is not a release build."
-    expected=$(sed -n 's/^BINARY_SHA256=//p' "$RELEASE_MANIFEST")
-    [ -n "$expected" ] || fail "Prebuilt release manifest has no executable checksum."
-    [ "$(hash_file "$RELEASE_BIN")" = "$expected" ] || fail "Prebuilt release binary checksum mismatch."
-    expected_nosix=$(sed -n 's/^NOSIX_SHA256=//p' "$RELEASE_MANIFEST")
-    [ -n "$expected_nosix" ] || fail "Prebuilt release manifest has no NOSIX checksum."
-    [ "$(hash_file "$NOSIX_LIBDIR/$NOSIX_REAL_NAME")" = "$expected_nosix" ] || fail "Prebuilt binary and packaged NOSIX ABI have different checksums."
-    expected_openssl=$(sed -n 's/^OPENSSL_SOURCE_SHA256=//p' "$RELEASE_MANIFEST")
-    [ "$expected_openssl" = "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2" ] || fail "Prebuilt binary references a different OpenSSL source version."
-    RELEASE_READY=1
-    echo "[check] Validated prebuilt executable: $RELEASE_BIN"
-}
-
 preflight() {
     # Dependency boundary is intentionally enforced here instead of through
     # a separate test harness: active Kaminowaku links NOSIX + OpenSSL only.
@@ -534,17 +504,9 @@ preflight() {
         prepare_packaged_nosix_abi
     fi
     echo "[check] NOSIX ABI and $OPENSSL_MODE OpenSSL dependency"
-    check_release_binary
-    if [ "$OPENSSL_MODE" = online ]; then
-        echo "[check] System OpenSSL $SYSTEM_OPENSSL_VERSION; source build required."
-        check_nosix_abi
-    elif [ "$RELEASE_READY" -eq 1 ]; then
-        echo "[check] Validated native release: compilation and compiler checks are unnecessary."
-    elif command -v clang >/dev/null 2>&1; then
-        check_nosix_abi
-    else
-        fail "No compiler available and no validated prebuilt release binary is included."
-    fi
+    need_toolchain
+    check_nosix_abi
+    echo "[check] Current-source compilation required for both modes."
     echo "[check] PASS ($OPENSSL_MODE)"
 }
 
@@ -629,21 +591,22 @@ case "$TARGET" in
     install)
         [ "$(id -u)" -eq 0 ] || fail "The install target requires root privileges. Run with sudo."
         preflight
-        if [ "$RELEASE_READY" -eq 1 ]; then
-            BINARY="$RELEASE_BIN"
-            echo "[install] Using verified prebuilt native release (no toolchain needed)."
-        else
-            echo "[make] Clean and build using $OPENSSL_MODE OpenSSL dependencies"
-            run_make clean
-            run_make all
-            BINARY="$STAGE_ROOT/bin/kaminowaku"
-        fi
+        # Always discard stale build outputs and compile the source in this tree.
+        # No packaged Kaminowaku executable is trusted or installed.
+        echo "[make] Clean and compile current source using $OPENSSL_MODE OpenSSL dependencies"
+        run_make clean
+        run_make all
+        BINARY="$STAGE_ROOT/bin/kaminowaku"
+        [ -s "$BINARY" ] || fail "Current-source build did not produce $BINARY."
         echo "[nosix] install private packaged ABI"
         install_packaged_nosix_abi
         echo "[install] executable"
         install -d -m 755 "$BINDIR"
         install -m 0755 "$BINARY" "$BINDIR/kaminowaku"
-        echo "Installed to $BINDIR/kaminowaku"
+        cmp -s "$BINARY" "$BINDIR/kaminowaku" ||
+            fail "Installed binary differs from the current-source build."
+        SOURCE_VERSION=$(sed -n 's/^[[:space:]]*#define[[:space:]]*VERSION[[:space:]]*"\([^"]*\)".*/\1/p' "$SOURCE_ROOT/data.h")
+        echo "Installed current-source Kaminowaku ${SOURCE_VERSION:-unknown} to $BINDIR/kaminowaku"
         if command -v ldd >/dev/null 2>&1; then
             LINKAGE=$(ldd "$BINDIR/kaminowaku" 2>&1) || fail "Installed executable cannot resolve runtime libraries: $LINKAGE"
             echo "$LINKAGE" | grep "not found" >/dev/null 2>&1 && fail "Missing runtime library: $LINKAGE"
@@ -724,7 +687,7 @@ case "$TARGET" in
         echo "BINDIR=$BINDIR"
         echo "INCLUDEDIR=$INCLUDEDIR"
         echo "LIBDIR=$LIBDIR"
-        echo "RELEASE_BIN=$RELEASE_BIN"
+        echo "BINARY_SOURCE=current-local-tree"
         echo "PLATFORM_TAG=$PLATFORM_TAG"
         echo "ARCH_TAG=$ARCH_TAG"
         echo "PACKAGED_NOSIX=$PACKAGED_NOSIX"

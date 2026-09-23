@@ -64,7 +64,7 @@ Additional architectures may be supported in future releases.
 
 ### Requirements
 
-The installer offers **two explicit OpenSSL modes**. `--offline` is the default and uses the pinned, statically linked OpenSSL 3.5.8 native release. It requires no compiler, package manager or network access when the packaged binary is included. `--online` builds Kaminowaku against the operating system's **OpenSSL 3 shared libraries** and permits dependency installation through `apt` on Kali/Debian or `pkg` on FreeBSD *only if dependencies are missing*. Online installation requires Clang, Make, OpenSSL development headers and pkg-config/pkgconf; the installer can acquire them with your explicit `--online` choice.
+The installer offers **two explicit OpenSSL modes**. `--offline` is the default and uses the pinned, statically linked OpenSSL 3.5.8 native release. It requires a locally available Clang/Make toolchain but never invokes a package manager or downloader; the installer always compiles the source being installed. `--online` builds Kaminowaku against the operating system's **OpenSSL 3 shared libraries** and permits dependency installation through `apt` on Kali/Debian or `pkg` on FreeBSD *only if dependencies are missing*. Online installation requires Clang, Make, OpenSSL development headers and pkg-config/pkgconf; the installer can acquire them with your explicit `--online` choice.
 
 The online mode does **not** require the bundled OpenSSL source archive, static libraries or manifests. Security updates for a dynamically linked OpenSSL can come through your operating system; an incompatible OpenSSL ABI upgrade may still require rebuilding Kaminowaku. The pinned offline build remains a snapshot and must be separately refreshed to include future OpenSSL security fixes.
 
@@ -93,7 +93,7 @@ cd kaminowaku
 ./install.sh check --online
 ```
 
-Both checks are non-installing: they may reconstruct linker symlinks within the shipped NOSIX ABI but never modify system packages. Offline mode validates the bundled libraries and native executable; online mode checks for an existing OpenSSL 3 development installation, Clang, Make and pkg-config/pkgconf. Unlike `install --online`, `check --online` never downloads packages.
+Both checks are non-installing: they may reconstruct linker symlinks within the shipped NOSIX ABI but never modify system packages. Offline mode validates bundled libraries and the required local Clang/Make toolchain; online mode checks system OpenSSL 3 development dependencies, Clang, Make, and pkg-config/pkgconf. Unlike `install --online`, `check --online` never downloads packages.
 
 ### Offline installation (default)
 
@@ -101,7 +101,7 @@ Both checks are non-installing: they may reconstruct linker symlinks within the 
 sudo ./install.sh install --offline
 ```
 
-A matching `release/<platform>-amd64/bin/kaminowaku` and SHA-256 manifest allow compiler-free installation. If the binary is absent, offline mode can also build from the packaged source and static libraries using an already installed Clang and Make. **Offline mode never pulls packages.**
+Offline installation **always performs a clean source build**, links the included NOSIX ABI and verified native OpenSSL static libraries, then installs the binary just compiled. A local Clang/Make toolchain is required. Packaged Kaminowaku executables are not shipped or used. **Offline mode never pulls packages.**
 
 ### Online installation (system OpenSSL)
 
@@ -123,7 +123,7 @@ Build-only commands do not install packages; prepare any missing dependencies in
 
 The Makefile delegates installation and removal to the same validated scripts.
 A bare `make` remains a sanitizer-enabled debug source build, whereas
-`make install` defaults to the verified **release/offline** installation.
+`make install` defaults to a clean **release/offline source build** and installation.
 
 ```sh
 sudo make install                              # release, offline; no package pulls
@@ -888,7 +888,7 @@ Installer syntax:
 | Target | Behavior |
 | --- | --- |
 | `check` | Validate compiler, dependencies, NOSIX ABI, and runtime assets |
-| `install` | Install the verified offline executable or build using the selected OpenSSL mode; install private NOSIX and runtime assets |
+| `install` | Clean-build the current source using the selected OpenSSL mode, then install the freshly compiled executable, private NOSIX and runtime assets |
 | `all` | Clean and build without installing |
 | `clean` | Remove build artifacts |
 | `info` | Print build and installation configuration |

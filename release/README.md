@@ -1,86 +1,67 @@
 # Native release packaging
 
-Kaminowaku supports two OpenSSL strategies. Choose the mode explicitly when
-installing; an unspecified mode defaults to **offline**.
+Kaminowaku supports two OpenSSL strategies. Offline is the default. Both
+installation modes **always clean and compile the source in the deployed tree**.
 
-## Offline mode: reproducible, no downloads
+## Offline mode: source-built, no downloads
 
 ```sh
-sudo ./install.sh install --offline
+./install.sh check --offline
+sudo ./install.sh install BUILD=release --offline
 ```
 
-A complete offline release includes these prebuilt native executables:
+An offline deployment includes Kaminowaku source, its Makefile, a local
+Clang/Make toolchain on each target, the licensed platform-specific NOSIX ABI,
+and pinned OpenSSL 3.5.8 source, generated headers and static libraries with
+their integrity manifests under `libs/`. The installer validates the bundled
+dependencies, discards stale `.STAGE/` outputs, compiles the current Kaminowaku
+source and installs that exact newly built executable.
 
-- `release/linux-amd64/bin/kaminowaku` with its `BUILD-MANIFEST.txt`;
-- `release/freebsd-amd64/bin/kaminowaku` with its `BUILD-MANIFEST.txt`.
+**No prepackaged Kaminowaku executables or executable manifests are shipped or
+used by offline installation.** The `release/<platform>-amd64/bin/kaminowaku`
+files from earlier snapshots have been removed. Bundled NOSIX and OpenSSL
+libraries are still required to build without network access. Offline mode
+never invokes package managers or downloaders; prepare Clang/Make beforehand.
 
-The offline package also carries the licensed NOSIX ABI, pinned OpenSSL 3.5.8
-source tarball, per-platform generated headers, `libssl.a`, `libcrypto.a`,
-and integrity manifests under `libs/`. The installer verifies SHA-256
-manifests before using the native executable, installs NOSIX to the private
-`PREFIX/lib/kaminowaku/` directory, and does not invoke a compiler,
-package manager or network downloader on the prebuilt path.
-
-Native release **preparation** on each build host is a separate operation:
+To prepare refreshed offline OpenSSL dependencies natively on each platform:
 
 ```sh
 ./libs/openssl/build-native.sh
 ./install.sh all BUILD=release --offline
-./release/package-native.sh
 ```
 
-The native OpenSSL preparation script requires its build-time prerequisites
-on the release host, including Perl. The package-native script refuses to
-package an online/system-OpenSSL build as an offline release. Copy the Linux
-and FreeBSD native outputs into the same Git release checkout.
-
-The offline snapshot uses the OpenSSL version packaged at release time;
-new OpenSSL security updates require new offline libraries and binaries.
-This offline source archive is **not** required by online installation.
+Collect the platform-specific OpenSSL headers, static archives and NOSIX ABI
+into the source package. Do not include native Kaminowaku binaries: each
+installation builds its own. Updating OpenSSL requires rebuilding its bundled
+offline libraries.
 
 ## Online mode: OS-managed OpenSSL
 
 ```sh
-sudo ./install.sh install --online
+sudo ./install.sh install BUILD=release --online
 ```
 
-Online mode ignores all bundled OpenSSL source, headers, libraries and
-prebuilt static executables. It requires a local Clang/Make toolchain and
-OpenSSL 3 development metadata. If missing, this explicitly opted-in install
-mode may acquire prerequisites with `apt-get` on apt-based Linux (including
-Kali) or `pkg` on FreeBSD. Already-satisfied dependencies trigger no
-package-manager operations. A `check --online` or `all --online` invocation
-is read-only with respect to package installation.
+Online installation likewise cleans and recompiles Kaminowaku from the current
+source, but links against system-managed OpenSSL 3 shared libraries. This mode
+may install missing prerequisites via apt on supported Linux systems or pkg
+on FreeBSD; `check` and `all` never install packages. NOSIX remains a
+private, licensed shared library installed alongside Kaminowaku.
 
-Kaminowaku is rebuilt against the installed **shared** OpenSSL libraries;
-OpenSSL upgrades within the same ABI are handled by the OS package manager.
-After an incompatible ABI/SONAME change, rebuild/reinstall Kaminowaku.
-NOSIX is still installed as a private, licensed shared library.
+## Release verification
 
-`./release/package-native.sh` is deliberately **offline only**; do not
-publish a system-dependent online build in place of the verified offline
-native executable.
-
-## Release verification before merging
-
-On both supported operating systems, validate the actual production build
-and installation paths:
+On Linux and FreeBSD, verify both modes and inspect the newly installed
+executable, not just a cached checkout or an older copy elsewhere on PATH:
 
 ```sh
 ./install.sh check --offline
+sudo ./install.sh install BUILD=release --offline
+/usr/local/bin/kaminowaku
 ./install.sh check --online
-./install.sh all BUILD=release --online
-sudo ./install.sh install --online
-sudo ./install.sh install --offline
+sudo ./install.sh install BUILD=release --online
 ```
 
-Verify `ldd` output: online must link system `libssl.so` and
-`libcrypto.so`, offline must **not**, and both must resolve
-`libnosix.so.1` from the private Kaminowaku library directory. Check TLS
-certificate validation, Books and the scanning workflow before the release.
-
-Compatibility is limited by each native binary's libc and OS baseline.
-Build Linux on the oldest supported libc and FreeBSD on the oldest intended
-supported OS release; test those baselines before making wider claims.
-
-Do not ship temporary deployment smoke-test scripts in the main repository.
+The offline binary must not dynamically link system `libssl.so` or
+`libcrypto.so`. Both modes must load `libnosix.so.1` from Kaminowaku's
+private library directory. If using a custom PREFIX, check `$PREFIX/bin`
+instead of `/usr/local/bin`. Test TLS, Books and scanning on both OSes
+before release.
