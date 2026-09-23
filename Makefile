@@ -38,7 +38,7 @@ STAGE_PRIVATE_LIB ?= $(STAGE_ROOT)/lib/kaminowaku
 OPENSSL_ROOT ?= libs/openssl
 OPENSSL_INCLUDEDIR ?= $(OPENSSL_ROOT)/$(PLATFORM_TAG)/include
 OPENSSL_LIBDIR ?= $(OPENSSL_ROOT)/$(PLATFORM_TAG)/lib
-OPENSSL_SYSTEM_LIBS != sh -c 'case "$(uname -s)" in Linux) echo -ldl;; *) echo "";; esac'
+OPENSSL_SYSTEM_LIBS != sh -c 'case "$(PLATFORM_TAG)" in linux) echo -ldl;; *) echo "";; esac'
 
 CPPFLAGS ?=
 CFLAGS ?= -g -O1 -fsanitize=address,leak -Wall -Wextra -pthread
@@ -47,7 +47,7 @@ LDLIBS ?=
 
 KAMI_CPPFLAGS = -iquote $(STAGE_INCLUDE) -I$(NOSIX_INCLUDEDIR) -I$(OPENSSL_INCLUDEDIR)
 # Both .STAGE/bin and PREFIX/bin resolve their own private NOSIX runtime.
-KAMI_LDFLAGS = -L$(STAGE_PRIVATE_LIB) -Wl,-z,origin -Wl,-rpath,'$ORIGIN/../lib/kaminowaku'
+KAMI_LDFLAGS = -L$(STAGE_PRIVATE_LIB) -Wl,-z,origin -Wl,-rpath,'$$ORIGIN/../lib/kaminowaku'
 KAMI_LDLIBS = -lnosix $(OPENSSL_LIBDIR)/libssl.a $(OPENSSL_LIBDIR)/libcrypto.a $(OPENSSL_SYSTEM_LIBS)
 
 all: runtime-check
@@ -93,18 +93,18 @@ prepare-stage:
 		REL=$${SRC#$(SOURCE_ROOT)/}; \
 		printf '%s\n' "$(STAGE_OBJ)/$${REL%.c}.o" >> "$(OBJECT_MANIFEST)"; \
 	done < "$(SOURCE_MANIFEST)"; \
-\techo "[STAGE] projected headers and build manifests"
+	echo "[STAGE] projected headers and build manifests"
 	@set -eu; \
 	[ -f "$(NOSIX_ABI_ENV)" ] || { echo "ERROR: Missing $(NOSIX_ABI_ENV)."; exit 1; }; \
 	. "./$(NOSIX_ABI_ENV)"; \
-	[ "$PLATFORM" = "$(PLATFORM_TAG)" ] || { echo "ERROR: NOSIX platform mismatch."; exit 1; }; \
-	[ "$ARCH" = "amd64" ] || { echo "ERROR: Unsupported NOSIX architecture."; exit 1; }; \
-	[ "$LINKER_NAME" = "libnosix.so" ] || { echo "ERROR: Unexpected NOSIX linker name."; exit 1; }; \
-	[ -s "$(NOSIX_PACKAGE_LIBDIR)/$REAL_NAME" ] || { echo "ERROR: NOSIX library missing."; exit 1; }; \
+	[ "$$PLATFORM" = "$(PLATFORM_TAG)" ] || { echo "ERROR: NOSIX platform mismatch."; exit 1; }; \
+	[ "$$ARCH" = "amd64" ] || { echo "ERROR: Unsupported NOSIX architecture."; exit 1; }; \
+	[ "$$LINKER_NAME" = "libnosix.so" ] || { echo "ERROR: Unexpected NOSIX linker name."; exit 1; }; \
+	[ -s "$(NOSIX_PACKAGE_LIBDIR)/$$REAL_NAME" ] || { echo "ERROR: NOSIX library missing."; exit 1; }; \
 	mkdir -p "$(STAGE_PRIVATE_LIB)"; \
-	cp "$(NOSIX_PACKAGE_LIBDIR)/$REAL_NAME" "$(STAGE_PRIVATE_LIB)/$REAL_NAME"; \
-	ln -sfn "$REAL_NAME" "$(STAGE_PRIVATE_LIB)/$SONAME_NAME"; \
-	ln -sfn "$SONAME_NAME" "$(STAGE_PRIVATE_LIB)/$LINKER_NAME"; \
+	cp "$(NOSIX_PACKAGE_LIBDIR)/$$REAL_NAME" "$(STAGE_PRIVATE_LIB)/$$REAL_NAME"; \
+	ln -sfn "$$REAL_NAME" "$(STAGE_PRIVATE_LIB)/$$SONAME_NAME"; \
+	ln -sfn "$$SONAME_NAME" "$(STAGE_PRIVATE_LIB)/$$LINKER_NAME"; \
 	echo "[STAGE] packaged NOSIX runtime staged"
 
 stage-check:
