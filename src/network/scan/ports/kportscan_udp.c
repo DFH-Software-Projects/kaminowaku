@@ -479,6 +479,11 @@ static int kportscan_udp_receive_batch(
         uint8_t CATCH[OUT_BLOCK];
         nosix_capture_t CAPTURE;
         nosix_status_t STATUS;
+        KWIRE_DEADLINE DEADLINE;
+
+        if (kwire_deadline_start(&DEADLINE, _prog_data->gprof.rx_timeout_ms) != NORMAL) {
+                return ABNORMAL;
+        }
 
         memset(CATCH, 0x00, sizeof(CATCH));
         memset(&CAPTURE, 0x00, sizeof(CAPTURE));
@@ -486,6 +491,13 @@ static int kportscan_udp_receive_batch(
         CAPTURE.frame.capacity = sizeof(CATCH);
 
         for (;;) {
+                uint32_t OUTSTANDING = 0;
+                for (uint32_t INDEX = 0; INDEX < PENDING_COUNT; INDEX++) {
+                        if (PENDING[INDEX].SENT == ISTRUE && PENDING[INDEX].DONE != ISTRUE) {
+                                OUTSTANDING++;
+                        }
+                }
+                if (OUTSTANDING == 0) return NORMAL;
                 const uint8_t * IP = NULL;
                 size_t IP_LENGTH = 0;
 
@@ -496,7 +508,7 @@ static int kportscan_udp_receive_batch(
                 CAPTURE.interface_index = 0;
                 CAPTURE.flags = 0;
 
-                STATUS = kwire_scan_read(_prog_data, &CAPTURE);
+                STATUS = kwire_scan_read_until(_prog_data, &CAPTURE, &DEADLINE);
 
                 if (STATUS == NOSIX_TIMEOUT) {
                         return NORMAL;
