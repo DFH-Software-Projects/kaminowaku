@@ -6,14 +6,20 @@ Kaminowaku is currently pre-1.0. Entries describe released behavior rather than 
 
 ## Unreleased
 
+## 0.1.2 — 2026-09-23
+
 ### Added
 
+- project-level `targets display -p` and `-b` filters now accept the scanner port grammar: single ports, inclusive ranges, comma-separated combinations, and multiple expressions;
+- shared port-expression parsing keeps scanner and project-display selection semantics aligned.
 - offline installation with bundled OpenSSL 3.5.8 static libraries, verified native Linux/FreeBSD amd64 executables, and licensed private NOSIX ABI;
 - opt-in online installation against system-managed OpenSSL 3 shared libraries; missing build prerequisites may be installed through apt or FreeBSD pkg only when explicitly requested;
 - matching private NOSIX integrity, loader-path and OpenSSL linkage verification for both modes.
 
 ### Changed
 
+- project port filters include a target when any selected TCP port is OPEN in the latest persisted IPv4 or IPv6 state; `-p` renders only selected TCP observations, while `-b` additionally renders detail and stored banner/service data for selected OPEN TCP ports; Book output remains collapsed;
+- persisted port filtering now evaluates selected-port state in one pass per target and preserves newer CLOSED/FILTERED/ERROR results over older OPEN observations.
 - offline remains the default and never invokes package managers or downloaders; online builds follow OS OpenSSL security updates without requiring new OpenSSL blobs in this repository;
 - uninstallation preserves all user projects, captures and logs unless `--purge-user-data` is requested;
 - removed temporary offline deployment smoke-test scripts from the release source tree.

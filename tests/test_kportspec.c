@@ -59,7 +59,7 @@ int main(void) {
         CHECK(kportspec_contains(&spec, 65535U) == 1);
         CHECK(kportspec_contains(&spec, 0U) == 0);
 
-        // Preserve scanner v0.1.1 grammar: strtok_r() ignores empty comma fields.
+        // Preserve scanner v0.1.2 grammar: strtok_r() ignores empty comma fields.
         CHECK(kportspec_parse(",22,,80,", &spec) == 0);
         CHECK(spec.count == 2U);
 

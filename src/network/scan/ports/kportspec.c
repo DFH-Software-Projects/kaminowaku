@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-// These parsing rules intentionally match kportscan.c in v0.1.1.
+// These parsing rules intentionally preserve the scanner grammar in v0.1.2.
 // In particular, strtok_r() skips empty comma fields; changing that grammar
 // is a separate decision from extracting the shared parser.
 
