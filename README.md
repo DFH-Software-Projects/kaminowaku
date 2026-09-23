@@ -918,6 +918,7 @@ The build uses a generated `.STAGE/` tree for header projection, object files, m
 
 - [Source link graph](docs/LINK_GRAPH.md) — source ownership, compile/link relationships, runtime flow, external dependency boundaries, and change-impact mapping.
 - [Book language reference](docs/BOOK_LANGUAGE_V1.md) — supported Lua syntax, Book/module authoring contract, runtime boundaries, and guidance for Books versus external tools/scripts.
+- [Hard timeout guarantees](docs/HARD_TIMEOUTS.md) — monotonic receive deadlines, Book execution limits, regression checks, and native NOSIX rebuild requirements.
 
 ## Contributing
 
