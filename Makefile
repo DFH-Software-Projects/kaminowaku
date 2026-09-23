@@ -21,6 +21,10 @@ TARGET_PATH ?= $(STAGE_BIN)/$(TARGET)
 # ---- Toolchain ----
 CC ?= cc
 BUILD ?= debug
+# Keep bare "make" sanitizer-enabled, but install a production build by default.
+INSTALL_BUILD ?= release
+# Must be set to 1 explicitly to delete ALL users' Kaminowaku data.
+PURGE_USER_DATA ?= 0
 PLATFORM_TAG != uname -s | tr '[:upper:]' '[:lower:]'
 
 # ---- Prefix ----
@@ -145,9 +149,20 @@ finalize-stage:
 	@rm -rf "$(STAGE_INCLUDE)"
 	@echo "[STAGE] removed temporary header projection; objects retained"
 
-# Direct make installs go through the same validated installer as consumers.
+# Installation delegates to the real installer; "make all" stays debug by
+# default, while "make install" defaults to a release build.
 install:
-	@./install.sh install BUILD=$(BUILD) --$(OPENSSL_MODE)
+	@PREFIX="$(PREFIX)" ./install.sh install BUILD=$(INSTALL_BUILD) --$(OPENSSL_MODE)
+
+# Uninstallation preserves all user projects, PCAPs and logs by default.
+# Explicitly set PURGE_USER_DATA=1 to purge every user's Kaminowaku data.
+uninstall:
+	@set -eu; \
+	case "$(PURGE_USER_DATA)" in \
+		0) PREFIX="$(PREFIX)" ./uninstall.sh --keep-user-data ;; \
+		1) PREFIX="$(PREFIX)" ./uninstall.sh --purge-user-data ;; \
+		*) echo "ERROR: PURGE_USER_DATA must be 0 (preserve) or 1 (purge all users)." >&2; exit 1 ;; \
+	esac
 
 clean:
 	rm -rf "$(STAGE_ROOT)"
@@ -156,6 +171,8 @@ clean:
 info:
 	@echo "CC=$(CC)"
 	@echo "BUILD=$(BUILD)"
+	@echo "INSTALL_BUILD=$(INSTALL_BUILD)"
+	@echo "PURGE_USER_DATA=$(PURGE_USER_DATA)"
 	@echo "PREFIX=$(PREFIX)"
 	@echo "INCLUDEDIR=$(INCLUDEDIR)"
 	@echo "LIBDIR=$(LIBDIR)"
@@ -188,4 +205,4 @@ info:
 	@printf 'SRCS='; find "$(SOURCE_ROOT)" -type f -name '*.c' -print 2>/dev/null | LC_ALL=C sort | paste -sd ' ' -; printf '\n'
 	@printf 'OBJS='; find "$(SOURCE_ROOT)" -type f -name '*.c' -print 2>/dev/null | LC_ALL=C sort | while IFS= read -r SRC; do REL=$${SRC#$(SOURCE_ROOT)/}; printf '%s ' "$(STAGE_OBJ)/$${REL%.c}.o"; done; printf '\n'
 
-.PHONY: all build runtime-check prepare-stage stage-check objects finalize-stage install clean info
+.PHONY: all build runtime-check prepare-stage stage-check objects finalize-stage install uninstall clean info

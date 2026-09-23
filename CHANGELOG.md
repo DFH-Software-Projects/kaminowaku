@@ -17,6 +17,7 @@ Kaminowaku is currently pre-1.0. Entries describe released behavior rather than 
 - offline remains the default and never invokes package managers or downloaders; online builds follow OS OpenSSL security updates without requiring new OpenSSL blobs in this repository;
 - uninstallation preserves all user projects, captures and logs unless `--purge-user-data` is requested;
 - removed temporary offline deployment smoke-test scripts from the release source tree.
+- Makefile installation now defaults to a release build, supports online/offline OpenSSL and forwards custom install prefixes; `make uninstall` preserves user data unless `PURGE_USER_DATA=1` is explicitly supplied.
 
 ## 0.1.0 — 2026-09-21
 

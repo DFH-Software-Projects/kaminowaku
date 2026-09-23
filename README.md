@@ -119,6 +119,26 @@ For an online build without installing:
 
 Build-only commands do not install packages; prepare any missing dependencies in advance.
 
+### Makefile install and uninstall
+
+The Makefile delegates installation and removal to the same validated scripts.
+A bare `make` remains a sanitizer-enabled debug source build, whereas
+`make install` defaults to the verified **release/offline** installation.
+
+```sh
+sudo make install                              # release, offline; no package pulls
+sudo make install OPENSSL_MODE=online          # release, system-managed OpenSSL
+sudo make install INSTALL_BUILD=debug         # debug, offline source build
+sudo make uninstall                           # preserve user projects, PCAPs and logs
+sudo make uninstall PURGE_USER_DATA=1         # explicitly remove ALL users' Kami data
+```
+
+To install into or remove from a non-default prefix, pass `PREFIX=/your/path`
+to the respective Make target. `make install` uses `INSTALL_BUILD` rather
+than `BUILD` so the ordinary development build retains its debug default.
+An explicit `PURGE_USER_DATA=1` is required before the Makefile passes
+`--purge-user-data` to the uninstaller.
+
 Installed binary:
 
 ```text
