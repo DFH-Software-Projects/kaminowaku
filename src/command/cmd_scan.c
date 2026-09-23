@@ -350,7 +350,7 @@ void cmd_scan (_carry_forward * _prog_data) {
                                         _prog_data->cmd_tokens_count == 3
                                         && strcmp(_prog_data->cmd_tokens[2], "-n") == MATCH
                                 ) {
-                                        targets_del_unobserved(_prog_data);
+                                        targets_del_no_neighbor(_prog_data);
                                 } else if (
                                        ((strcmp(_prog_data->cmd_tokens[2], "-U") == MATCH)
                                         || (strcmp(_prog_data->cmd_tokens[2], "-4") == MATCH)

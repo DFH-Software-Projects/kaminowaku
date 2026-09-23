@@ -10,7 +10,7 @@ void targets_print_usage(void);
 void targets_print_usage_guard(void);
 void targets_add_target(_carry_forward * _prog_data);
 void targets_del_target(_carry_forward * _prog_data, int8_t MODE);
-void targets_del_unobserved(_carry_forward * _prog_data);
+void targets_del_no_neighbor(_carry_forward * _prog_data);
 void targets_display_from_project(_carry_forward * _prog_data);
 void targets_display_from_project_guard(_carry_forward * _prog_data);
 void targets_display_from_context(_carry_forward * _prog_data);

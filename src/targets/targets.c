@@ -1,5 +1,6 @@
 // Copyright 2026 Jamison A. Drapeau
 #include "targets.h"
+#include "targets_neighbor_filter.h"
 #include "tlib.h"
 #include "helpers.h"
 #include "kui.h"
@@ -444,7 +445,7 @@ void targets_print_usage(void) {
         kui_add_line("\ttargets del -n");
         kui_add_line(
                 "\t" NOTICE_INFO
-                ANSI_COLOR_YELLOW "Delete targets with no received-packet observation." ANSI_COLOR_RESET
+                ANSI_COLOR_YELLOW "Delete only targets with explicit neighbor-resolution failures." ANSI_COLOR_RESET
         );
         kui_add_line("");
         // CIDR add usage:
@@ -496,7 +497,7 @@ void targets_print_usage(void) {
         kui_add_line("\t-6\t: IPv6 Address");
         kui_add_line("\t-M\t: MAC Address");
         kui_add_line("\t-N\t: Note (e.g. 'DC' or 'Webserver' or 'Bobs Computer')");
-        kui_add_line("\t-n\t: Delete targets with no received-packet observation (del only)");
+        kui_add_line("\t-n\t: Delete targets with recorded neighbor failure on every configured IP family (del only)");
         kui_add_line("\t-d\t: Display all detailed built-in scan data followed by all stored Book output");
         kui_add_line("\t-o\t: Display only targets and scan results backed by received packets");
         kui_add_line("\t-p\t: Display only targets with the specified TCP port OPEN");
@@ -790,8 +791,9 @@ static int8_t targets_has_observation(
         return kportdisplay_has_observed(_prog_data, TID);
 }
 
-// @@ Delete every target with no positive received-packet observation
-void targets_del_unobserved(_carry_forward * _prog_data) {
+// @@ Delete only targets with explicit, recorded neighbor-resolution failure.
+// A missing scan, ICMP timeout, or generic TX error is not evidence for -n.
+void targets_del_no_neighbor(_carry_forward * _prog_data) {
         FLOWER * CURRENT;
         uint64_t DELETED = 0;
         uint64_t PRESERVED = 0;
@@ -808,7 +810,7 @@ void targets_del_unobserved(_carry_forward * _prog_data) {
                 unsigned char TID[TID_BLOCK];
                 char PATH[MAX_PATH];
                 TARGET * PETAL;
-                int8_t OBSERVED = ISFALSE;
+                int8_t PRUNE;
 
                 memset(TID, 0x00, sizeof(TID));
                 memcpy(TID, CURRENT->TID, TID_BLOCK - 1);
@@ -838,19 +840,14 @@ void targets_del_unobserved(_carry_forward * _prog_data) {
                         continue;
                 }
 
-                if (
-                        targets_has_observation(
-                                _prog_data,
-                                TID,
-                                PETAL
-                        ) == ISTRUE
-                ) {
-                        OBSERVED = ISTRUE;
-                }
-
+                PRUNE = targets_prune_no_neighbor(
+                        PETAL,
+                        kscan_icmpv6_state(PETAL),
+                        targets_has_observation(_prog_data, TID, PETAL)
+                );
                 free(PETAL);
 
-                if (OBSERVED == ISTRUE) {
+                if (PRUNE != ISTRUE) {
                         PRESERVED++;
                         CURRENT = NEXT;
                         continue;
@@ -872,14 +869,14 @@ void targets_del_unobserved(_carry_forward * _prog_data) {
         kui_add_line(
                 NOTICE_SUCCESS
                 "Deleted " ANSI_COLOR_CYAN "%llu" ANSI_COLOR_RESET
-                " target%s with no received-packet observation.",
+                " target%s with recorded neighbor-resolution failure.",
                 (unsigned long long)DELETED,
                 (DELETED == 1) ? "" : "s"
         );
         kui_add_line(
                 NOTICE_INFO
                 "Preserved " ANSI_COLOR_CYAN "%llu" ANSI_COLOR_RESET
-                " observed target%s.",
+                " target%s without conclusive neighbor failure or with response evidence.",
                 (unsigned long long)PRESERVED,
                 (PRESERVED == 1) ? "" : "s"
         );
