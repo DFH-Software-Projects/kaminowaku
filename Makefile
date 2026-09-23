@@ -21,7 +21,7 @@ TARGET_PATH ?= $(STAGE_BIN)/$(TARGET)
 # ---- Toolchain ----
 CC ?= cc
 BUILD ?= debug
-PKG_CONFIG ?= pkg-config
+# OpenSSL and NOSIX are supplied by the release payload. No pkg-config lookup.
 
 # ---- Prefix ----
 PREFIX ?= /usr/local
@@ -30,20 +30,19 @@ INCLUDEDIR ?= $(PREFIX)/include
 LIBDIR ?= $(PREFIX)/lib
 NOSIX_INCLUDEDIR ?= $(INCLUDEDIR)
 NOSIX_LIBDIR ?= $(LIBDIR)
-
-# ---- Runtime dependency discovery ----
-OPENSSL_PKG != sh -c 'if command -v $(PKG_CONFIG) >/dev/null 2>&1 && $(PKG_CONFIG) --exists openssl 2>/dev/null; then echo openssl; fi'
-OPENSSL_CFLAGS != sh -c 'if [ -n "$(OPENSSL_PKG)" ]; then $(PKG_CONFIG) --cflags $(OPENSSL_PKG) 2>/dev/null; fi'
-OPENSSL_LIBS != sh -c 'if [ -n "$(OPENSSL_PKG)" ]; then $(PKG_CONFIG) --libs $(OPENSSL_PKG) 2>/dev/null; fi'
+OPENSSL_INCLUDEDIR ?= libs/openssl/linux/include
+OPENSSL_LIBDIR ?= libs/openssl/linux/lib
+PRIVATE_LIBDIR ?= $(LIBDIR)/kaminowaku
+OPENSSL_EXTRA_LIBS ?=
 
 CPPFLAGS ?=
 CFLAGS ?= -g -O1 -fsanitize=address,leak -Wall -Wextra -pthread
 LDFLAGS ?= -fsanitize=address,leak -pthread
 LDLIBS ?=
 
-KAMI_CPPFLAGS = -iquote $(STAGE_INCLUDE) -I$(NOSIX_INCLUDEDIR) $(OPENSSL_CFLAGS)
-KAMI_LDFLAGS = -L$(NOSIX_LIBDIR)
-KAMI_LDLIBS = -lnosix $(OPENSSL_LIBS)
+KAMI_CPPFLAGS = -iquote $(STAGE_INCLUDE) -I$(NOSIX_INCLUDEDIR) -I$(OPENSSL_INCLUDEDIR)
+KAMI_LDFLAGS = -L$(NOSIX_LIBDIR) -Wl,-rpath,$(PRIVATE_LIBDIR)
+KAMI_LDLIBS = -lnosix $(OPENSSL_LIBDIR)/libssl.a $(OPENSSL_LIBDIR)/libcrypto.a $(OPENSSL_EXTRA_LIBS)
 
 all: runtime-check
 	@$(MAKE) prepare-stage
@@ -59,11 +58,9 @@ build: stage-check objects
 	$(CC) $$OBJS $(LDFLAGS) $(KAMI_LDFLAGS) $(LDLIBS) $(KAMI_LDLIBS) -o "$(TARGET_PATH)"
 
 runtime-check:
-	@if [ -z "$(OPENSSL_PKG)" ]; then \
-		echo "ERROR: OpenSSL development package/pkg-config metadata not found."; \
-		echo "Expected pkg-config module: openssl."; \
-		exit 1; \
-	fi
+	@[ -f "$(OPENSSL_INCLUDEDIR)/openssl/ssl.h" ] || { echo "ERROR: Packaged OpenSSL headers missing."; exit 1; }
+	@[ -f "$(OPENSSL_LIBDIR)/libssl.a" ] || { echo "ERROR: Packaged static OpenSSL libssl.a missing."; exit 1; }
+	@[ -f "$(OPENSSL_LIBDIR)/libcrypto.a" ] || { echo "ERROR: Packaged static OpenSSL libcrypto.a missing."; exit 1; }
 	@if [ ! -f "$(NOSIX_INCLUDEDIR)/nosix.h" ]; then \
 		echo "ERROR: Missing installed NOSIX header: $(NOSIX_INCLUDEDIR)/nosix.h"; \
 		exit 1; \
@@ -146,9 +143,10 @@ info:
 	@echo "LIBDIR=$(LIBDIR)"
 	@echo "NOSIX_INCLUDEDIR=$(NOSIX_INCLUDEDIR)"
 	@echo "NOSIX_LIBDIR=$(NOSIX_LIBDIR)"
-	@echo "OPENSSL_PKG=$(OPENSSL_PKG)"
-	@echo "OPENSSL_CFLAGS=$(OPENSSL_CFLAGS)"
-	@echo "OPENSSL_LIBS=$(OPENSSL_LIBS)"
+	@echo "OPENSSL_INCLUDEDIR=$(OPENSSL_INCLUDEDIR)"
+	@echo "OPENSSL_LIBDIR=$(OPENSSL_LIBDIR)"
+	@echo "OPENSSL_EXTRA_LIBS=$(OPENSSL_EXTRA_LIBS)"
+	@echo "PRIVATE_LIBDIR=$(PRIVATE_LIBDIR)"
 	@echo "CPPFLAGS=$(CPPFLAGS)"
 	@echo "KAMI_CPPFLAGS=$(KAMI_CPPFLAGS)"
 	@echo "CFLAGS=$(CFLAGS)"
