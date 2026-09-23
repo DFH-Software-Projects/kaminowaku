@@ -413,6 +413,11 @@ check_release_binary() {
     expected=$(sed -n 's/^BINARY_SHA256=//p' "$RELEASE_MANIFEST")
     [ -n "$expected" ] || fail "Prebuilt release manifest has no executable checksum."
     [ "$(hash_file "$RELEASE_BIN")" = "$expected" ] || fail "Prebuilt release binary checksum mismatch."
+    expected_nosix=$(sed -n 's/^NOSIX_SHA256=//p' "$RELEASE_MANIFEST")
+    [ -n "$expected_nosix" ] || fail "Prebuilt release manifest has no NOSIX checksum."
+    [ "$(hash_file "$NOSIX_LIBDIR/$NOSIX_REAL_NAME")" = "$expected_nosix" ] || fail "Prebuilt binary and packaged NOSIX ABI have different checksums."
+    expected_openssl=$(sed -n 's/^OPENSSL_SOURCE_SHA256=//p' "$RELEASE_MANIFEST")
+    [ "$expected_openssl" = "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2" ] || fail "Prebuilt binary references a different OpenSSL source version."
     RELEASE_READY=1
     echo "[check] Validated prebuilt executable: $RELEASE_BIN"
 }
@@ -430,12 +435,12 @@ preflight() {
         echo "[check] packaged NOSIX / vendored OpenSSL ABI"
     fi
     check_release_binary
-    if command -v clang >/dev/null 2>&1; then
+    if [ "$RELEASE_READY" -eq 1 ]; then
+        echo "[check] Validated native release: compilation and compiler checks are unnecessary."
+    elif command -v clang >/dev/null 2>&1; then
         check_nosix_abi
-    elif [ "$RELEASE_READY" -eq 1 ]; then
-        echo "[check] No compiler required: validated native release binary is included."
     else
-        fail "No clang available and no validated prebuilt release binary is included."
+        fail "No compiler available and no validated prebuilt release binary is included."
     fi
     echo "[check] PASS (offline)"
 }
@@ -529,6 +534,7 @@ case "$TARGET" in
             echo "$LINKAGE" | grep "not found" >/dev/null 2>&1 && fail "Missing runtime library: $LINKAGE"
             echo "$LINKAGE" | grep -E "libssl[.]so|libcrypto[.]so" >/dev/null 2>&1 && fail "Linked system OpenSSL instead of packaged static archives."
             echo "$LINKAGE" | grep "libnosix.so.1" >/dev/null 2>&1 || fail "Private NOSIX runtime not resolved."
+            echo "$LINKAGE" | grep -F "$LIBDIR/" >/dev/null 2>&1 || fail "NOSIX resolved outside Kaminowaku's private runtime directory."
         fi
         echo "[assets] install runtime assets"
         install_runtime_assets

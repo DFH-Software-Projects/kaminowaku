@@ -21,3 +21,24 @@ Compatibility is limited by each native binary's libc and OS baseline.
 Build Linux on the oldest intended supported libc and FreeBSD on the oldest
 intended supported OS release; record and validate those baselines before
 publishing universal claims.
+
+## Offline installation acceptance test
+
+After the official source archive, both native OpenSSL packages, and both
+release executable manifests have been committed, deploy the complete Git
+tree to the Linux and FreeBSD test hosts. On **each host**, run:
+
+```sh
+sudo ./tests/offline-install-smoke.sh
+```
+
+The smoke test sets an isolated, automatically removed `PREFIX` and inserts
+failure stubs for package managers, downloaders and compilers into `PATH`.
+It verifies the SHA-256-validated native binary was installed without a build,
+checks bundled assets, and uses `ldd` to require private NOSIX linkage while
+rejecting dynamic OpenSSL linkage. It does not overwrite the system-wide
+Kaminowaku installation or remove a user's `~/.kaminowaku` data.
+
+Once both OS tests pass, use `sudo ./install.sh install` for the actual
+system-wide installation. Run additional TLS/certificate and network
+regression tests before merging the release PR.

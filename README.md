@@ -64,14 +64,9 @@ Additional architectures may be supported in future releases.
 
 ### Requirements
 
-The installer requires:
+The complete offline release ships the static OpenSSL 3.5.8 archives, the compatible NOSIX ABI, and native executable packages for Linux and FreeBSD amd64. **Prebuilt installation does not require Clang, Make, Perl, pkg-config, or any package-manager access.** An optional source build requires the target's existing Clang and Make toolchain.
 
-- `clang`
-- `make`
-- the bundled static OpenSSL 3.5.8 archives for the target OS
-- the bundled compatible NOSIX ABI
-
-The installer invokes **no package manager** and performs **no dependency downloads**. A complete offline release also carries platform-specific prebuilt executables under `release/`; when present, installation requires neither `clang` nor `make`. For an explicitly requested source build (or a checkout without prebuilt binaries), the target must already have `clang` and `make`. Both OpenSSL archives and the NOSIX ABI must be staged before packaging a release. See [Offline native release binaries](release/README.md).
+The installer performs no dependency downloads or package-manager operations. See [Offline native release binaries](release/README.md).
 
 The release tree includes the packaged NOSIX ABI under `libs/nosix/`. The installer validates that bundled ABI for the detected platform and architecture, reconstructs the required shared-library links, and installs it with Kaminowaku.
 
@@ -99,13 +94,21 @@ cd kaminowaku
 ./install.sh check
 ```
 
-The preflight check validates the source tree, runtime assets, vendored OpenSSL archives/checksums, and the NOSIX/OpenSSL ABI link path.
+The preflight check validates the source tree, runtime assets, native executable and NOSIX checksums, plus the vendored OpenSSL libraries and source checksum. It uses the prebuilt release without compiling anything when a matching native package is present.
 
 ### Install a release build
 
 The default installer first looks for a validated `release/<platform>-amd64/bin/kaminowaku` and its SHA-256 manifest. This path installs without a compiler or package manager. If the native binary is not present, it compiles Kaminowaku from the included source and prebuilt vendored libraries using existing `clang` and `make`.
 
-#### Install a release build
+For a non-destructive end-to-end test in a temporary installation prefix, run the offline smoke test first on each supported OS:
+
+```sh
+sudo ./tests/offline-install-smoke.sh
+```
+
+The smoke test blocks package-manager, downloader, compiler, and build-tool calls, verifies private NOSIX resolution and static OpenSSL, and removes its temporary prefix on completion.
+
+To install the validated release system-wide:
 
 ```sh
 sudo ./install.sh install BUILD=release
@@ -146,21 +149,19 @@ For normal use, prefer `BUILD=release`.
 
 ## Uninstalling Kaminowaku
 
-The supplied uninstall script is **destructive**:
+By default, the uninstaller removes the executable, shared runtime assets, and private NOSIX library **without deleting user evidence or configuration**:
 
 ```sh
 sudo ./uninstall.sh
 ```
 
-It removes:
+The default preserves `/root/.kaminowaku` and matching datastores under `/home/*/` and `/usr/home/*/`. To additionally erase **all users'** projects, target data, PCAP evidence, Book outputs, profiles, logs and tool registrations, explicitly request:
 
-- `/usr/local/bin/kaminowaku`;
-- `/usr/local/share/kaminowaku/`;
-- Kaminowaku's private NOSIX shared libraries under `/usr/local/lib/kaminowaku/` (not global NOSIX or OpenSSL);
-- `/root/.kaminowaku`;
-- matching `.kaminowaku` datastores under `/home/*/` and `/usr/home/*/`.
+```sh
+sudo ./uninstall.sh --purge-user-data
+```
 
-That includes stored projects, target data, PCAP evidence, Book output, profiles, logs, and tool registrations. Back up any evidence or configuration you need before running the script.
+Back up evidence before using the purge option. Neither mode removes system OpenSSL or an independently installed NOSIX library.
 
 ## Starting Kaminowaku
 
