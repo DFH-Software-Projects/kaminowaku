@@ -243,6 +243,22 @@ static int book_runtime_tick(
 ) {
         if (!runtime) return ABNORMAL;
 
+        // Check wall time even for scripts that never call a native receive.
+        if (
+                (runtime->instructions & 255ULL) == 0
+                && runtime->session
+                && books_session_remaining_ms(runtime->session) <= 0
+        ) {
+                if (runtime->session->termination == BOOK_TERM_NONE) {
+                        books_session_set_termination(
+                                runtime->session, BOOK_TERM_LIMIT_ERROR
+                        );
+                }
+                return book_runtime_fail_node(
+                        runtime, node_id, "Book hard execution deadline exceeded"
+                );
+        }
+
         if (runtime->instructions >= BOOK_RUNTIME_INSTRUCTION_LIMIT) {
                 return book_runtime_fail_node(
                         runtime,

@@ -1,0 +1,46 @@
+name: Kaminowaku hard timeout regression
+
+on:
+  push:
+    branches: [fix/hard-scan-deadlines]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'Makefile'
+      - '.github/workflows/hard-timeout.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run portable scanner unit tests
+        run: |
+          set -eu
+          for script in tests/run_*.sh; do sh "$script"; done
+      - name: Compile scanner against packaged NOSIX ABI
+        run: make OPENSSL_MODE=offline CFLAGS='-std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -pthread' LDFLAGS='-pthread'
+
+  freebsd:
+    name: FreeBSD 14.5 / amd64 (packaged NOSIX ABI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test Kaminowaku using its checked-in FreeBSD NOSIX ABI
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.5"
+          arch: x86_64
+          run: |
+            set -eu
+            freebsd-version
+            uname -a
+            for script in tests/run_*.sh; do sh "$script"; done
+            make OPENSSL_MODE=offline CFLAGS='-std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -pthread' LDFLAGS='-pthread'

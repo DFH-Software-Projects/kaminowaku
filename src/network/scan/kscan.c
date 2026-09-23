@@ -877,8 +877,11 @@ static int kscan_transmit_ready(
         TRANSACTION->STATE = KSCAN_TRANSACTION_PENDING;
         TRANSACTION->TX_NS = NOW_NS;
         TRANSACTION->DEADLINE_NS = NOW_NS + (
-                (uint64_t)SESSION->PROG_DATA->gprof.rx_timeout_ms
-                * 1000000ULL
+                (uint64_t)(
+                        SESSION->PROG_DATA->gprof.rx_timeout_ms > KWIRE_RX_HARD_TIMEOUT_MS
+                                ? KWIRE_RX_HARD_TIMEOUT_MS
+                                : SESSION->PROG_DATA->gprof.rx_timeout_ms
+                ) * 1000000ULL
         );
 
         kscan_pending_append(

@@ -1,15 +1,16 @@
 NOSIX packaged ABI for Kaminowaku
 Architecture: x86-64 / amd64
-Generated UTC: 2026-09-21T20:55:52Z
-NOSIX source commit: f0a55d79b737c6a434b8e8688bf465d34f8cc30d
+Generated UTC: 2026-09-23T23:06:16Z
+NOSIX source commit: f27b63ae1b3b26c15f87ca15c4c92c5d4e791e78
 NOSIX source dirty: false
+NOSIX source packaging: local on-disk files; native builds on Kali and FreeBSD
 
 Linux real library: libnosix.so.1.4.0
-Linux SHA256: E0A53E24CE353E78C664AA32CB902CCBD5F254CC291157557683E08380A22BAE
+Linux SHA256: 4A2C46B149302B720477721C3E72C8B79378F4441CD4BA5A5474407E078173B2
 Linux SONAME: libnosix.so.1
 Linux linker name: libnosix.so
 FreeBSD real library: libnosix.so.1.4.0
-FreeBSD SHA256: 6B9D7BA12E49C3AD20707EB2C27B1F0512824A63C0A31A2434E07088623F727B
+FreeBSD SHA256: 0FECDBBA531A1D6DB6D877C9BC80E02924EBCB4B26483A6B6F424E63963D29D0
 FreeBSD SONAME: libnosix.so.1
 FreeBSD linker name: libnosix.so
 

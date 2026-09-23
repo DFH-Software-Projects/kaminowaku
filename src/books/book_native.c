@@ -4,6 +4,7 @@
 #include "book_output.h"
 #include "book_tls.h"
 #include "kui.h"
+#include "kwire_deadline.h"
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -186,18 +187,15 @@ static int book_native_integer(
 
 static int32_t book_native_default_timeout(BOOK_RUNTIME * runtime) {
         BOOK_SESSION * session = book_runtime_session(runtime);
-
+        int32_t limit = KWIRE_RX_DEFAULT_TIMEOUT_MS;
         if (
-                session
-                && session->prog_data
+                session && session->prog_data
                 && session->prog_data->gprof.rx_timeout_ms > 0
         ) {
-                return session->prog_data->gprof.rx_timeout_ms > INT32_MAX
-                        ? INT32_MAX
-                        : (int32_t)session->prog_data->gprof.rx_timeout_ms;
+                limit = session->prog_data->gprof.rx_timeout_ms;
         }
-
-        return 1000;
+        return limit > KWIRE_RX_HARD_TIMEOUT_MS
+                ? KWIRE_RX_HARD_TIMEOUT_MS : limit;
 }
 
 static int book_native_timeout(
@@ -207,31 +205,43 @@ static int book_native_timeout(
         c_size_t index,
         int32_t * timeout_ms
 ) {
+        BOOK_SESSION * session;
         int64_t timeout;
-
+        int32_t maximum;
+        int32_t remaining;
         if (!runtime || !timeout_ms) return ABNORMAL;
+        session = book_runtime_session(runtime);
+        maximum = book_native_default_timeout(runtime);
 
-        if (
-                index >= argument_count
-                || arguments[index].type == BOOK_VALUE_NIL
-        ) {
-                *timeout_ms = book_native_default_timeout(runtime);
-                return NORMAL;
+        if (index >= argument_count || arguments[index].type == BOOK_VALUE_NIL) {
+                timeout = maximum;
+        } else {
+                if (
+                        book_native_integer(
+                                runtime, arguments, argument_count,
+                                index, 1, INT32_MAX, &timeout,
+                                "timeout_ms must be a positive integer"
+                        ) != NORMAL
+                ) return ABNORMAL;
+                if (timeout > maximum) {
+                        return book_runtime_native_fail(
+                                runtime,
+                                "timeout_ms exceeds the active profile/native hard maximum"
+                        );
+                }
         }
 
-        if (
-                book_native_integer(
-                        runtime,
-                        arguments,
-                        argument_count,
-                        index,
-                        1,
-                        INT32_MAX,
-                        &timeout,
-                        "timeout_ms must be a positive integer"
-                ) != NORMAL
-        ) {
-                return ABNORMAL;
+        if (session) {
+                remaining = books_session_remaining_ms(session);
+                if (remaining <= 0) {
+                        if (session->termination == BOOK_TERM_NONE) {
+                                books_session_set_termination(session, BOOK_TERM_LIMIT_ERROR);
+                        }
+                        return book_runtime_native_fail(
+                                runtime, "Book hard execution deadline exceeded"
+                        );
+                }
+                if (timeout > remaining) timeout = remaining;
         }
 
         *timeout_ms = (int32_t)timeout;
@@ -849,6 +859,7 @@ static int book_native_rx_exact(
         int64_t count_number;
         c_size_t count;
         int32_t timeout_ms;
+        KWIRE_DEADLINE DEADLINE;
         unsigned char * buffer;
         c_size_t total = 0;
         const char * final_status = "ok";
@@ -899,15 +910,26 @@ static int book_native_rx_exact(
                 );
         }
 
+        if (kwire_deadline_start(&DEADLINE, timeout_ms) != NORMAL) {
+                memset(buffer, 0x00, count);
+                free(buffer);
+                return book_runtime_native_fail(runtime, "unable to start receive deadline");
+        }
+
         while (total < count) {
+                int32_t remaining_ms = kwire_deadline_remaining_ms(&DEADLINE);
                 c_size_t received = 0;
                 const char * status_text = "error";
+                if (remaining_ms <= 0) {
+                        final_status = remaining_ms == 0 ? "timeout" : "error";
+                        break;
+                }
 
                 if (
                         book_native_rx_once(
                                 runtime,
                                 count - total,
-                                timeout_ms,
+                                remaining_ms,
                                 buffer + total,
                                 &received,
                                 &status_text

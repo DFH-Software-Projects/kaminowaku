@@ -159,6 +159,7 @@ void ksping6(_carry_forward * _prog_data) {
         uint64_t SCAN_TIMESTAMP_NS;
         struct timespec TIME_START;
         struct timespec TIME_END;
+        KWIRE_DEADLINE RX_DEADLINE;
         size_t TX_FRAME_LENGTH;
         uint8_t CATCH[OUT_BLOCK];
         nosix_capture_t CAPTURE;
@@ -377,6 +378,11 @@ void ksping6(_carry_forward * _prog_data) {
         CAPTURE.frame.data = CATCH;
         CAPTURE.frame.capacity = sizeof(CATCH);
         ECHO_REPLY_MATCHED = ISFALSE;
+        if (kwire_deadline_start(&RX_DEADLINE, _prog_data->gprof.rx_timeout_ms) != NORMAL) {
+                ksping6_record_result(_prog_data, SCAN_RESULT_ERROR);
+                kwire_pcap_close(&PCAP);
+                return;
+        }
 
         for (;;) {
                 uint8_t * FRAME;
@@ -400,10 +406,8 @@ void ksping6(_carry_forward * _prog_data) {
                 CAPTURE.interface_index = 0;
                 CAPTURE.flags = 0;
 
-                STATUS = kwire_read(
-                        _prog_data,
-                        &PCAP,
-                        &CAPTURE
+                STATUS = kwire_read_until(
+                        _prog_data, &PCAP, &CAPTURE, &RX_DEADLINE
                 );
 
                 if (STATUS == NOSIX_TIMEOUT) {

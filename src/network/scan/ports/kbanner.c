@@ -489,6 +489,7 @@ static nosix_status_t kbanner_collect(
         int32_t TIMEOUT_MS
 ) {
         size_t TOTAL = 0;
+        KWIRE_DEADLINE DEADLINE;
 
         if (OUT_LENGTH) {
                 *OUT_LENGTH = 0;
@@ -498,14 +499,24 @@ static nosix_status_t kbanner_collect(
                 return NOSIX_ERR_ARGUMENT;
         }
 
+        if (kwire_deadline_start(&DEADLINE, TIMEOUT_MS) != NORMAL) {
+                return NOSIX_ERR_SYSTEM;
+        }
+
         while (TOTAL < OUT_SIZE) {
+                int32_t REMAINING = kwire_deadline_remaining_ms(&DEADLINE);
                 size_t RECEIVED = 0;
+                if (REMAINING <= 0) {
+                        if (OUT_LENGTH) *OUT_LENGTH = TOTAL;
+                        return TOTAL > 0 ? NOSIX_OK
+                                : REMAINING == 0 ? NOSIX_TIMEOUT : NOSIX_ERR_SYSTEM;
+                }
                 nosix_status_t STATUS = nosix_stream_read(
                         STREAM,
                         OUT + TOTAL,
                         OUT_SIZE - TOTAL,
                         &RECEIVED,
-                        TIMEOUT_MS
+                        REMAINING
                 );
 
                 if (STATUS == NOSIX_OK) {
@@ -797,8 +808,13 @@ static void kbanner_capture_flush(_carry_forward * _prog_data) {
         CAPTURE.frame.data = CATCH;
         CAPTURE.frame.capacity = sizeof(CATCH);
 
+        KWIRE_DEADLINE DEADLINE;
+        if (kwire_deadline_start(&DEADLINE, 1000) != NORMAL) return;
+
         for (unsigned int INDEX = 0; INDEX < 4096U; INDEX++) {
                 nosix_status_t STATUS;
+                int32_t REMAINING = kwire_deadline_remaining_ms(&DEADLINE);
+                if (REMAINING <= 0) break;
 
                 CAPTURE.frame.length = 0;
                 CAPTURE.wire_length = 0;
@@ -1292,6 +1308,7 @@ static void kbanner_capture_stream_transaction(
         uint16_t LOCAL_PORT = 0;
         uint64_t APPENDED = 0;
         int8_t PCAP_AVAILABLE = ISFALSE;
+        KWIRE_DEADLINE DEADLINE;
 
         if (
                 !_prog_data
@@ -1329,8 +1346,14 @@ static void kbanner_capture_stream_transaction(
         CAPTURE.frame.data = CATCH;
         CAPTURE.frame.capacity = sizeof(CATCH);
 
+        if (kwire_deadline_start(&DEADLINE, _prog_data->gprof.rx_timeout_ms) != NORMAL) {
+                return;
+        }
+
         for (unsigned int INDEX = 0; INDEX < 8192U; INDEX++) {
                 nosix_status_t STATUS;
+                int32_t REMAINING = kwire_deadline_remaining_ms(&DEADLINE);
+                if (REMAINING <= 0) break;
                 int8_t DIRECTION = 0;
                 int8_t TRANSPORT_MATCH;
                 int8_t SUPPORTING_MATCH;
@@ -1344,7 +1367,7 @@ static void kbanner_capture_stream_transaction(
                 STATUS = nosix_read_timeout(
                         _prog_data->nosix_net,
                         &CAPTURE,
-                        75
+                        REMAINING < 75 ? REMAINING : 75
                 );
 
                 if (STATUS == NOSIX_TIMEOUT) {

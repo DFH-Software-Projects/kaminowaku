@@ -6,6 +6,18 @@ Kaminowaku is currently pre-1.0. Entries describe released behavior rather than 
 
 ## Unreleased
 
+## 0.1.3 — 2026-09-23
+
+### Added
+
+- hard monotonic receive deadlines for ICMP, DNS, TCP/UDP scanning, banner enrichment and Book execution;
+- deadline regression tests and Linux/FreeBSD build checks.
+
+### Changed
+
+- bundled refreshed Linux and FreeBSD NOSIX ABI 1.4 builds from NOSIX source commit `f27b63ae1b3b26c15f87ca15c4c92c5d4e791e78`;
+- native receive, route/neighbor lookup and Book sessions now observe bounded deadlines, including interrupted operations and partial I/O.
+
 ## 0.1.2 — 2026-09-23
 
 ### Added

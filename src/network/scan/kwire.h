@@ -3,6 +3,7 @@
 #define __KWIRE__H
 #include "data.h"
 #include "kscan.h"
+#include "kwire_deadline.h"
 #include "kui.h"
 #include <fcntl.h>
 #include <inttypes.h>
@@ -673,6 +674,39 @@ static inline nosix_status_t kwire_scan_read(
                 _prog_data->nosix_net,
                 CAPTURE
         );
+}
+
+// @@ Every scanner receive takes only the time remaining in its transaction.
+// Unrelated traffic, EINTR and partial replies cannot restart this budget.
+static inline nosix_status_t kwire_read_until(
+        _carry_forward * _prog_data,
+        KPCAP * PCAP,
+        nosix_capture_t * CAPTURE,
+        const KWIRE_DEADLINE * DEADLINE
+) {
+        int32_t REMAINING;
+        if (!_prog_data || !_prog_data->nosix_net || !PCAP || !CAPTURE || !DEADLINE) {
+                return NOSIX_ERR_ARGUMENT;
+        }
+        REMAINING = kwire_deadline_remaining_ms(DEADLINE);
+        if (REMAINING < 0) return NOSIX_ERR_SYSTEM;
+        if (REMAINING == 0) return NOSIX_TIMEOUT;
+        return nosix_read_timeout(_prog_data->nosix_net, CAPTURE, REMAINING);
+}
+
+static inline nosix_status_t kwire_scan_read_until(
+        _carry_forward * _prog_data,
+        nosix_capture_t * CAPTURE,
+        const KWIRE_DEADLINE * DEADLINE
+) {
+        int32_t REMAINING;
+        if (!_prog_data || !_prog_data->nosix_net || !CAPTURE || !DEADLINE) {
+                return NOSIX_ERR_ARGUMENT;
+        }
+        REMAINING = kwire_deadline_remaining_ms(DEADLINE);
+        if (REMAINING < 0) return NOSIX_ERR_SYSTEM;
+        if (REMAINING == 0) return NOSIX_TIMEOUT;
+        return nosix_read_timeout(_prog_data->nosix_net, CAPTURE, REMAINING);
 }
 
 static inline void kwire_rx_accept(

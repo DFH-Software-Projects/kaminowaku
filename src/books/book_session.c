@@ -590,6 +590,14 @@ int books_session_prepare(
         session->target = target;
         session->session_id = books_now_ns();
         session->started_ns = session->session_id;
+        {
+                struct timespec mono;
+                if (clock_gettime(CLOCK_MONOTONIC, &mono) != NORMAL) return ABNORMAL;
+                session->execution_deadline_ns =
+                        (uint64_t)mono.tv_sec * 1000000000ULL
+                        + (uint64_t)mono.tv_nsec
+                        + (uint64_t)BOOK_SESSION_HARD_TIMEOUT_MS * 1000000ULL;
+        }
         session->state = BOOK_SESSION_CREATED;
         session->termination = BOOK_TERM_NONE;
         session->transport = BOOK_TRANSPORT_NONE;
@@ -682,10 +690,25 @@ int books_session_prepare(
         return NORMAL;
 }
 
+// Returns remaining hard execution budget; 0 if expired, -1 on clock failure.
+int32_t books_session_remaining_ms(const BOOK_SESSION * session) {
+        struct timespec now;
+        uint64_t now_ns;
+        uint64_t delta_ns;
+        if (!session || session->execution_deadline_ns == 0
+                || clock_gettime(CLOCK_MONOTONIC, &now) != NORMAL) return -1;
+        now_ns = (uint64_t)now.tv_sec * 1000000000ULL
+                + (uint64_t)now.tv_nsec;
+        if (now_ns >= session->execution_deadline_ns) return 0;
+        delta_ns = session->execution_deadline_ns - now_ns;
+        return (int32_t)((delta_ns + 999999ULL) / 1000000ULL);
+}
+
 int books_session_network_allowed(const BOOK_SESSION * session) {
         if (!session) return ISFALSE;
         if (session->capture_active != ISTRUE) return ISFALSE;
         if (session->pcap_fd < 0) return ISFALSE;
+        if (books_session_remaining_ms(session) <= 0) return ISFALSE;
         if (session->termination == BOOK_TERM_LIMIT_ERROR) return ISFALSE;
         if (session->state < BOOK_SESSION_CAPTURE_ACTIVE) return ISFALSE;
         if (session->state >= BOOK_SESSION_CLOSING) return ISFALSE;

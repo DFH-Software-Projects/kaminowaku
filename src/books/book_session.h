@@ -7,6 +7,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 
+#define BOOK_SESSION_HARD_TIMEOUT_MS 120000U
 #define BOOK_PCAP_LINKTYPE_ETHERNET 1U
 #define BOOK_PCAP_LINKTYPE_RAW_IPV4 101U
 
@@ -72,6 +73,7 @@ typedef struct BOOK_SESSION {
         atomic_int              capture_thread_error;
         unsigned char           pcap_path[MAX_PATH];
         uint64_t                started_ns;
+        uint64_t                execution_deadline_ns;  // CLOCK_MONOTONIC hard session budget
         uint64_t                ended_ns;
         uint64_t                network_actions;
         uint64_t                tx_bytes;
@@ -91,6 +93,7 @@ int books_session_prepare(
 );
 
 int books_session_network_allowed(const BOOK_SESSION * session);
+int32_t books_session_remaining_ms(const BOOK_SESSION * session);
 void books_session_set_termination(BOOK_SESSION * session, book_termination_t termination);
 void books_session_note_network_action(BOOK_SESSION * session);
 
