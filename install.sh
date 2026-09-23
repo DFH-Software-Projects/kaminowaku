@@ -5,6 +5,11 @@ set -eu
 
 TARGET="install"
 BUILD="release"
+# Offline remains the safe default; package operations require --online.
+OPENSSL_MODE="offline"
+OPENSSL_MODE_SET=0
+PKG_CONFIG_TOOL="pkg-config"
+SYSTEM_OPENSSL_VERSION=""
 
 PREFIX="${PREFIX:-/usr/local}"
 BINDIR="${PREFIX}/bin"
@@ -58,11 +63,17 @@ usage() {
     echo "Kaminowaku Install Script"
     echo ""
     echo "Usage:"
-    echo "  ./install.sh [target] [BUILD=debug|release]"
+    echo "  ./install.sh [target] [BUILD=debug|release] [--offline|--online]"
+    echo ""
+    echo "OpenSSL mode:"
+    echo "  --offline  Use the bundled OpenSSL 3.5.8 static libraries and native binary (default)"
+    echo "  --online   Link against system-managed OpenSSL 3; if needed, the install"
+    echo "             target may install build dependencies via apt or pkg"
+    echo "             (always compiles Kaminowaku; requires clang and make)"
     echo ""
     echo "Targets:"
-    echo "  check     Validate compiler, dependencies, shipped NOSIX ABI, and runtime assets"
-    echo "  install   Clean, build, install binary, NOSIX ABI, licenses, and runtime assets (default)"
+    echo "  check     Read-only dependency and release-payload validation"
+    echo "  install   Install prebuilt offline binary, or build for selected mode (default)"
     echo "  all       Clean and build only"
     echo "  clean     Remove build artifacts"
     echo "  info      Show build/install configuration"
@@ -80,8 +91,10 @@ usage() {
     echo "  ./install.sh"
     echo "  ./install.sh install BUILD=release"
     echo "  ./install.sh install BUILD=debug"
-    echo "  ./install.sh all BUILD=release"
-    echo "  # install without clang/make when release/<platform>-amd64 is packaged"
+    echo "  ./install.sh all BUILD=release --offline"
+    echo "  sudo ./install.sh install --online"
+    echo "  # --online uses apt/pkg ONLY when prerequisites are missing"
+    echo "  # --offline installs without a compiler when a native binary is included"
 }
 
 fail() {
@@ -99,7 +112,7 @@ if [ "$#" -gt 0 ]; then
             TARGET="$1"
             shift
             ;;
-        BUILD=debug|BUILD=release)
+        BUILD=debug|BUILD=release|--online|--offline)
             ;;
         *)
             fail "Unsupported target or argument '$1'. Use --help for usage."
@@ -115,8 +128,16 @@ for arg in "$@"; do
         BUILD=release)
             BUILD="release"
             ;;
+        --offline|--online)
+            requested_mode=${arg#--}
+            if [ "$OPENSSL_MODE_SET" -eq 1 ] && [ "$OPENSSL_MODE" != "$requested_mode" ]; then
+                fail "Conflicting OpenSSL modes: specify only one of --offline or --online."
+            fi
+            OPENSSL_MODE="$requested_mode"
+            OPENSSL_MODE_SET=1
+            ;;
         *)
-            fail "Unsupported argument '$arg'. Use BUILD=debug or BUILD=release."
+            fail "Unsupported argument '$arg'. Use --online, --offline, BUILD=debug or BUILD=release."
             ;;
     esac
 done
@@ -127,6 +148,77 @@ fi
 
 UNAME_S=$(uname -s)
 UNAME_M=$(uname -m)
+
+# The online mode deliberately delegates OpenSSL patching to the operating
+# system package manager. Offline mode NEVER invokes these functions.
+find_system_pkg_config() {
+    PKG_CONFIG_TOOL=""
+    for candidate in pkg-config pkgconf; do
+        if command -v "$candidate" >/dev/null 2>&1 \
+            && "$candidate" --atleast-version=3.0.0 openssl >/dev/null 2>&1; then
+            PKG_CONFIG_TOOL="$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+online_prerequisites_ready() {
+    command -v clang >/dev/null 2>&1 || return 1
+    command -v make >/dev/null 2>&1 || return 1
+    find_system_pkg_config || return 1
+}
+
+install_online_dependencies() {
+    [ "$TARGET" = install ] \
+        || fail "System OpenSSL 3 development headers, pkg-config, Clang and Make are required for --online. Package installation is only permitted for the install target."
+    [ "$(id -u)" -eq 0 ] \
+        || fail "Run the online install target as root to allow explicit package installation."
+    case "$UNAME_S" in
+        Linux)
+            command -v apt-get >/dev/null 2>&1 \
+                || fail "Automatic online dependency installation currently supports apt-based Linux only. Install OpenSSL 3 headers, Clang, Make and pkg-config manually."
+            echo "[online] Missing build prerequisites; installing clang, make, pkg-config and libssl-dev via apt."
+            DEBIAN_FRONTEND=noninteractive apt-get update \
+                || fail "apt-get update failed; use --offline on restricted hosts."
+            DEBIAN_FRONTEND=noninteractive apt-get install -y clang make pkg-config libssl-dev \
+                || fail "Online OpenSSL/Clang prerequisite installation failed."
+            ;;
+        FreeBSD)
+            command -v pkg >/dev/null 2>&1 \
+                || fail "FreeBSD pkg unavailable. Use --offline or prepare the system dependencies manually."
+            echo "[online] Missing build prerequisites; installing openssl and pkgconf via pkg."
+            if ! pkg -N >/dev/null 2>&1; then
+                ASSUME_ALWAYS_YES=yes pkg bootstrap -f \
+                    || fail "FreeBSD pkg bootstrap failed; use --offline."
+            fi
+            ASSUME_ALWAYS_YES=yes pkg install -y openssl pkgconf \
+                || fail "FreeBSD OpenSSL/pkgconf installation failed."
+            ;;
+        *)
+            fail "Online OpenSSL installation supports only apt-based Linux and FreeBSD."
+            ;;
+    esac
+}
+
+check_system_openssl_dependency() {
+    if ! online_prerequisites_ready; then
+        if [ "$TARGET" = install ]; then
+            install_online_dependencies
+        else
+            fail "Online source-build requirements missing. Run sudo ./install.sh install --online to authorize apt/pkg, or use --offline."
+        fi
+    fi
+    online_prerequisites_ready \
+        || fail "OpenSSL >=3.0 development files, pkg-config, Clang or Make are still unavailable after dependency setup."
+    SYSTEM_OPENSSL_VERSION=$("$PKG_CONFIG_TOOL" --modversion openssl)
+    OPENSSL_CFLAGS=$("$PKG_CONFIG_TOOL" --cflags openssl) \
+        || fail "Failed to discover system OpenSSL headers."
+    OPENSSL_LIBS=$("$PKG_CONFIG_TOOL" --libs openssl) \
+        || fail "Failed to discover system OpenSSL shared libraries."
+    [ -n "$OPENSSL_LIBS" ] || fail "System OpenSSL linker flags are empty."
+    echo "[online] Using OS-managed OpenSSL $SYSTEM_OPENSSL_VERSION (dynamic linkage via $PKG_CONFIG_TOOL)."
+}
 
 # Vendored OpenSSL: no package manager, network access or system OpenSSL.
 check_openssl_dependency() {
@@ -303,6 +395,8 @@ run_make() {
     make \
         CC=clang \
         BUILD="$BUILD" \
+        OPENSSL_MODE="$OPENSSL_MODE" \
+        OPENSSL_PKG_CONFIG="$PKG_CONFIG_TOOL" \
         CPPFLAGS="$CPPFLAGS" \
         CFLAGS="$CFLAGS" \
         LDFLAGS="$LDFLAGS" \
@@ -319,7 +413,9 @@ check_source_assets() {
     [ -f "$SOURCE_ROOT/data.h" ] || fail "Missing core header: $SOURCE_ROOT/data.h"
     [ -f "$DEFAULT_PROFILE_SRC" ] || fail "Missing restore profile: $DEFAULT_PROFILE_SRC"
     [ -f "./LICENSE.txt" ] || fail "Missing Kaminowaku license: ./LICENSE.txt"
-    [ -f "$PACKAGED_OPENSSL_ROOT/LICENSE.txt" ] || fail "Missing vendored OpenSSL license."
+    if [ "$OPENSSL_MODE" = offline ]; then
+        [ -f "$PACKAGED_OPENSSL_ROOT/LICENSE.txt" ] || fail "Missing vendored OpenSSL license."
+    fi
 
     if [ "$PACKAGED_NOSIX" -eq 1 ]; then
         [ -f "$PACKAGED_NOSIX_LICENSE" ] || fail "Missing packaged NOSIX license: $PACKAGED_NOSIX_LICENSE"
@@ -405,7 +501,9 @@ EOF
 
 check_release_binary() {
     RELEASE_READY=0
-    if [ "$BUILD" != release ] || [ ! -s "$RELEASE_BIN" ]; then return 0; fi
+    # An offline static executable must never be reused for an online build:
+    # only a fresh dynamic build tracks system-managed OpenSSL updates.
+    if [ "$OPENSSL_MODE" != offline ] || [ "$BUILD" != release ] || [ ! -s "$RELEASE_BIN" ]; then return 0; fi
     [ -s "$RELEASE_MANIFEST" ] || fail "Prebuilt release manifest missing: $RELEASE_MANIFEST"
     grep -Fx "PLATFORM=$PLATFORM_TAG" "$RELEASE_MANIFEST" >/dev/null || fail "Prebuilt binary platform mismatch."
     grep -Fx "ARCH=$ARCH_TAG" "$RELEASE_MANIFEST" >/dev/null || fail "Prebuilt binary architecture mismatch."
@@ -427,22 +525,27 @@ preflight() {
     # a separate test harness: active Kaminowaku links NOSIX + OpenSSL only.
     echo "[check] source/runtime assets"
     check_source_assets
-    check_openssl_dependency
+    if [ "$OPENSSL_MODE" = offline ]; then
+        check_openssl_dependency
+    else
+        check_system_openssl_dependency
+    fi
     if [ "$PACKAGED_NOSIX" -eq 1 ]; then
         prepare_packaged_nosix_abi
-        echo "[check] packaged NOSIX / vendored OpenSSL ABI"
-    else
-        echo "[check] packaged NOSIX / vendored OpenSSL ABI"
     fi
+    echo "[check] NOSIX ABI and $OPENSSL_MODE OpenSSL dependency"
     check_release_binary
-    if [ "$RELEASE_READY" -eq 1 ]; then
+    if [ "$OPENSSL_MODE" = online ]; then
+        echo "[check] System OpenSSL $SYSTEM_OPENSSL_VERSION; source build required."
+        check_nosix_abi
+    elif [ "$RELEASE_READY" -eq 1 ]; then
         echo "[check] Validated native release: compilation and compiler checks are unnecessary."
     elif command -v clang >/dev/null 2>&1; then
         check_nosix_abi
     else
         fail "No compiler available and no validated prebuilt release binary is included."
     fi
-    echo "[check] PASS (offline)"
+    echo "[check] PASS ($OPENSSL_MODE)"
 }
 
 install_packaged_nosix_abi() {
@@ -490,8 +593,20 @@ install_runtime_assets() {
         install -m 644 "$PACKAGED_NOSIX_MANIFEST" "$SHARE_LICENSES_DIR/NOSIX-BUILD-MANIFEST.txt"
     fi
 
-    install -m 644 "$PACKAGED_OPENSSL_ROOT/LICENSE.txt" "$SHARE_LICENSES_DIR/OPENSSL-LICENSE.txt"
-    install -m 644 "$OPENSSL_MANIFEST" "$SHARE_LICENSES_DIR/OPENSSL-BUILD-MANIFEST.txt"
+    if [ "$OPENSSL_MODE" = offline ]; then
+        install -m 644 "$PACKAGED_OPENSSL_ROOT/LICENSE.txt" "$SHARE_LICENSES_DIR/OPENSSL-LICENSE.txt"
+        install -m 644 "$OPENSSL_MANIFEST" "$SHARE_LICENSES_DIR/OPENSSL-BUILD-MANIFEST.txt"
+        rm -f "$SHARE_LICENSES_DIR/OPENSSL-SYSTEM.txt"
+    else
+        # The system package manager owns the dynamically linked OpenSSL
+        # library and its licensing/security updates.
+        rm -f "$SHARE_LICENSES_DIR/OPENSSL-LICENSE.txt" "$SHARE_LICENSES_DIR/OPENSSL-BUILD-MANIFEST.txt"
+        printf 'Mode: online
+Provider: operating system package manager
+OpenSSL version at build: %s
+'             "$SYSTEM_OPENSSL_VERSION" > "$SHARE_LICENSES_DIR/OPENSSL-SYSTEM.txt"
+        chmod 644 "$SHARE_LICENSES_DIR/OPENSSL-SYSTEM.txt"
+    fi
 
     # System Books are permanent Lua runtime assets. The interpreter is
     # Kaminowaku-owned C code; this does not install or depend on external Lua.
@@ -518,7 +633,7 @@ case "$TARGET" in
             BINARY="$RELEASE_BIN"
             echo "[install] Using verified prebuilt native release (no toolchain needed)."
         else
-            echo "[make] clean and build from packaged source and static libraries"
+            echo "[make] Clean and build using $OPENSSL_MODE OpenSSL dependencies"
             run_make clean
             run_make all
             BINARY="$STAGE_ROOT/bin/kaminowaku"
@@ -532,7 +647,20 @@ case "$TARGET" in
         if command -v ldd >/dev/null 2>&1; then
             LINKAGE=$(ldd "$BINDIR/kaminowaku" 2>&1) || fail "Installed executable cannot resolve runtime libraries: $LINKAGE"
             echo "$LINKAGE" | grep "not found" >/dev/null 2>&1 && fail "Missing runtime library: $LINKAGE"
-            echo "$LINKAGE" | grep -E "libssl[.]so|libcrypto[.]so" >/dev/null 2>&1 && fail "Linked system OpenSSL instead of packaged static archives."
+            if [ "$OPENSSL_MODE" = offline ]; then
+                if printf '%s\n' "$LINKAGE" | grep -E 'libssl[.]so|libcrypto[.]so' >/dev/null 2>&1; then
+                    fail "Offline executable links system OpenSSL instead of packaged static archives."
+                fi
+            else
+                if ! printf '%s\n' "$LINKAGE" | grep -E 'libssl[.]so' >/dev/null 2>&1; then
+                    printf '%s\n' "$LINKAGE" >&2
+                    fail "Online executable is not dynamically linked to system libssl."
+                fi
+                if ! printf '%s\n' "$LINKAGE" | grep -E 'libcrypto[.]so' >/dev/null 2>&1; then
+                    printf '%s\n' "$LINKAGE" >&2
+                    fail "Online executable is not dynamically linked to system libcrypto."
+                fi
+            fi
             echo "$LINKAGE" | grep 'libnosix.so.1' >/dev/null 2>&1 || fail "Private NOSIX runtime not resolved."
             # $ORIGIN/../lib and the canonical lib directory are equivalent:
             # compare real paths rather than relying on ldd's textual spelling.
@@ -562,7 +690,10 @@ case "$TARGET" in
         echo "Installed restore profile: ${DEFAULT_PROFILE_DST}"
         echo "Installed system books: ${SHARE_BOOKS_DIR}"
         echo "Installed licenses: ${SHARE_LICENSES_DIR}"
-        echo "Kaminowaku installed offline with vendored OpenSSL and private NOSIX."
+        echo "[+] Kaminowaku installed in $OPENSSL_MODE mode with private NOSIX."
+        if [ "$OPENSSL_MODE" = online ]; then
+            echo "[i] OpenSSL $SYSTEM_OPENSSL_VERSION is managed by the operating system package manager."
+        fi
         ;;
 
     all)
@@ -582,6 +713,8 @@ case "$TARGET" in
     info)
         echo "CC=clang"
         echo "BUILD=$BUILD"
+        echo "OPENSSL_MODE=$OPENSSL_MODE"
+        echo "SYSTEM_OPENSSL_VERSION=$SYSTEM_OPENSSL_VERSION"
         echo "OS=$UNAME_S"
         echo "ARCH=$UNAME_M"
         echo "CPPFLAGS=$CPPFLAGS"
@@ -627,6 +760,10 @@ case "$TARGET" in
         echo "NOSIX_REAL_NAME=$NOSIX_REAL_NAME"
         echo ""
         echo "Makefile configuration:"
-        run_make info
+        if command -v make >/dev/null 2>&1; then
+            make OPENSSL_MODE="$OPENSSL_MODE" OPENSSL_PKG_CONFIG="$PKG_CONFIG_TOOL" info
+        else
+            echo "make is not available; skipping build-specific configuration."
+        fi
         ;;
 esac

@@ -17,7 +17,9 @@ case "$(uname -s)" in
     *) fail "Linux or FreeBSD is required." ;;
 esac
 case "$(uname -m)" in amd64|x86_64) ARCH=amd64 ;; *) fail "amd64 only." ;; esac
-[ -s .STAGE/bin/kaminowaku ] || fail "Run './install.sh all BUILD=release' on this machine first."
+[ -s .STAGE/bin/kaminowaku ] || fail "Run './install.sh all BUILD=release --offline' on this machine first."
+[ -s .STAGE/meta/build-mode.env ] || fail "Missing .STAGE build mode; rebuild with ./install.sh all BUILD=release --offline."
+grep -Fx 'OPENSSL_MODE=offline' .STAGE/meta/build-mode.env >/dev/null     || fail "Cannot package a system-linked --online executable as an offline release. Rebuild with --offline."
 [ -s ".STAGE/lib/kaminowaku/libnosix.so.1.4.0" ] || fail "Staged NOSIX library is missing."
 [ -s "libs/openssl/$PLATFORM/BUILD-MANIFEST.txt" ] || fail "Native OpenSSL package missing."
 [ -s "libs/openssl/source/openssl-3.5.8.tar.gz" ] || fail "Vendored OpenSSL source archive missing."

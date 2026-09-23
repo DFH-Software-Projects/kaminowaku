@@ -16,9 +16,15 @@ native build/test procedure, builds static libraries with
 libssl.a, libcrypto.a, the license and a per-platform build manifest.
 
 Commit the tarball, both complete platform output directories, LICENSE.txt,
-and this script when preparing the offline release. Unlike release
-preparation, the customer-facing installer must never fetch dependencies
-or run package managers.
+and this script when preparing the offline release. These files are optional
+for `--online`: that mode instead compiles Kaminowaku against system-managed
+OpenSSL 3 and may acquire missing development dependencies using apt or pkg
+**only when the operator explicitly requests online installation**.
+The default `--offline` installer never downloads anything.
+
+Online package updates do not require adding another OpenSSL release to this
+directory, provided its shared-library ABI stays compatible. A future offline
+security refresh still requires native static OpenSSL and Kaminowaku rebuilds.
 
 Platform payload:
 - `linux/include/openssl/` and `linux/lib/{libssl.a,libcrypto.a}`

@@ -64,13 +64,11 @@ Additional architectures may be supported in future releases.
 
 ### Requirements
 
-The complete offline release ships the static OpenSSL 3.5.8 archives, the compatible NOSIX ABI, and native executable packages for Linux and FreeBSD amd64. **Prebuilt installation does not require Clang, Make, Perl, pkg-config, or any package-manager access.** An optional source build requires the target's existing Clang and Make toolchain.
+The installer offers **two explicit OpenSSL modes**. `--offline` is the default and uses the pinned, statically linked OpenSSL 3.5.8 native release. It requires no compiler, package manager or network access when the packaged binary is included. `--online` builds Kaminowaku against the operating system's **OpenSSL 3 shared libraries** and permits dependency installation through `apt` on Kali/Debian or `pkg` on FreeBSD *only if dependencies are missing*. Online installation requires Clang, Make, OpenSSL development headers and pkg-config/pkgconf; the installer can acquire them with your explicit `--online` choice.
 
-The installer performs no dependency downloads or package-manager operations. See [Offline native release binaries](release/README.md).
+The online mode does **not** require the bundled OpenSSL source archive, static libraries or manifests. Security updates for a dynamically linked OpenSSL can come through your operating system; an incompatible OpenSSL ABI upgrade may still require rebuilding Kaminowaku. The pinned offline build remains a snapshot and must be separately refreshed to include future OpenSSL security fixes.
 
-The release tree includes the packaged NOSIX ABI under `libs/nosix/`. The installer validates that bundled ABI for the detected platform and architecture, reconstructs the required shared-library links, and installs it with Kaminowaku.
-
-Vendored OpenSSL is prepared on native Linux and FreeBSD build hosts before release. Instructions: [Bundled OpenSSL](libs/openssl/README.md). The installer does not build OpenSSL.
+Both modes use the same licensed, bundled NOSIX ABI under `libs/nosix/`, installed into Kaminowaku's **private** library directory. Neither mode overwrites a system OpenSSL installation. See [Release packaging](release/README.md) and [Bundled OpenSSL](libs/openssl/README.md).
 
 Required NOSIX components:
 
@@ -91,28 +89,35 @@ cd kaminowaku
 ### Preflight check
 
 ```sh
-./install.sh check
+./install.sh check --offline
+./install.sh check --online
 ```
 
-The preflight check validates the source tree, runtime assets, native executable and NOSIX checksums, plus the vendored OpenSSL libraries and source checksum. It uses the prebuilt release without compiling anything when a matching native package is present.
+Both checks are non-installing: they may reconstruct linker symlinks within the shipped NOSIX ABI but never modify system packages. Offline mode validates the bundled libraries and native executable; online mode checks for an existing OpenSSL 3 development installation, Clang, Make and pkg-config/pkgconf. Unlike `install --online`, `check --online` never downloads packages.
 
-### Install a release build
-
-The default installer first looks for a validated `release/<platform>-amd64/bin/kaminowaku` and its SHA-256 manifest. This path installs without a compiler or package manager. If the native binary is not present, it compiles Kaminowaku from the included source and prebuilt vendored libraries using existing `clang` and `make`.
-
-For a non-destructive end-to-end test in a temporary installation prefix, run the offline smoke test first on each supported OS:
+### Offline installation (default)
 
 ```sh
-sudo ./tests/offline-install-smoke.sh
+sudo ./install.sh install --offline
 ```
 
-The smoke test blocks package-manager, downloader, compiler, and build-tool calls, verifies private NOSIX resolution and static OpenSSL, and removes its temporary prefix on completion.
+A matching `release/<platform>-amd64/bin/kaminowaku` and SHA-256 manifest allow compiler-free installation. If the binary is absent, offline mode can also build from the packaged source and static libraries using an already installed Clang and Make. **Offline mode never pulls packages.**
 
-To install the validated release system-wide:
+### Online installation (system OpenSSL)
 
 ```sh
-sudo ./install.sh install BUILD=release
+sudo ./install.sh install --online
 ```
+
+Online mode always compiles Kaminowaku against system-managed OpenSSL 3 shared libraries rather than reusing the statically linked offline binary. When dependencies are missing, this explicit install mode may run `apt-get` or FreeBSD `pkg`; when they're already present, it makes no package-manager calls. On a restricted host, use `--offline` instead.
+
+For an online build without installing:
+
+```sh
+./install.sh all BUILD=release --online
+```
+
+Build-only commands do not install packages; prepare any missing dependencies in advance.
 
 Installed binary:
 
@@ -142,10 +147,10 @@ System default profile:
 The installer defaults to a release build when `BUILD` is omitted. Use `BUILD=debug` explicitly when you want the sanitizer-enabled development build.
 
 ```sh
-sudo ./install.sh install BUILD=debug
+sudo ./install.sh install BUILD=debug --offline
 ```
 
-For normal use, prefer `BUILD=release`.
+For normal use, prefer `BUILD=release`. For a sanitizer-enabled system-OpenSSL build, specify `--online` instead of `--offline`.
 
 ## Uninstalling Kaminowaku
 
@@ -860,7 +865,7 @@ Installer syntax:
 | Target | Behavior |
 | --- | --- |
 | `check` | Validate compiler, dependencies, NOSIX ABI, and runtime assets |
-| `install` | Clean, build, install the binary, and install runtime assets |
+| `install` | Install the verified offline executable or build using the selected OpenSSL mode; install private NOSIX and runtime assets |
 | `all` | Clean and build without installing |
 | `clean` | Remove build artifacts |
 | `info` | Print build and installation configuration |
@@ -868,9 +873,12 @@ Installer syntax:
 Examples:
 
 ```sh
-./install.sh check
-sudo ./install.sh install BUILD=release
-./install.sh all BUILD=release
+./install.sh check --offline
+./install.sh check --online
+sudo ./install.sh install BUILD=release --offline
+sudo ./install.sh install BUILD=release --online
+./install.sh all BUILD=release --offline
+./install.sh all BUILD=release --online
 ./install.sh clean
 ./install.sh info
 ```

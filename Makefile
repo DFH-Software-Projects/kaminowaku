@@ -29,7 +29,7 @@ BINDIR ?= $(PREFIX)/bin
 INCLUDEDIR ?= $(PREFIX)/include
 LIBDIR ?= $(PREFIX)/lib
 
-# ---- Repository-local dependencies; no package-manager discovery ----
+# ---- Bundled NOSIX and selectable offline/online OpenSSL ----
 NOSIX_ROOT ?= libs/nosix
 NOSIX_INCLUDEDIR ?= $(NOSIX_ROOT)/include
 NOSIX_PACKAGE_LIBDIR ?= $(NOSIX_ROOT)/$(PLATFORM_TAG)/lib
@@ -38,22 +38,28 @@ STAGE_PRIVATE_LIB ?= $(STAGE_ROOT)/lib/kaminowaku
 OPENSSL_ROOT ?= libs/openssl
 OPENSSL_INCLUDEDIR ?= $(OPENSSL_ROOT)/$(PLATFORM_TAG)/include
 OPENSSL_LIBDIR ?= $(OPENSSL_ROOT)/$(PLATFORM_TAG)/lib
-OPENSSL_SYSTEM_LIBS != sh -c 'case "$(PLATFORM_TAG)" in linux) echo -ldl;; *) echo "";; esac'
+# offline: bundled OpenSSL 3.5.8 static archives; online: system-managed
+# OpenSSL 3 shared libraries. Online requires pkg-config/pkgconf at build time.
+OPENSSL_MODE ?= offline
+OPENSSL_PKG_CONFIG ?= pkg-config
+OPENSSL_HEADER_FLAGS != sh -c 'case "$(OPENSSL_MODE)" in offline) echo -I$(OPENSSL_INCLUDEDIR);; online) "$(OPENSSL_PKG_CONFIG)" --cflags openssl;; esac'
+OPENSSL_LINK_FLAGS != sh -c 'case "$(OPENSSL_MODE)" in offline) echo $(OPENSSL_LIBDIR)/libssl.a $(OPENSSL_LIBDIR)/libcrypto.a;; online) "$(OPENSSL_PKG_CONFIG)" --libs openssl;; esac'
+OPENSSL_SYSTEM_LIBS != sh -c 'case "$(PLATFORM_TAG):$(OPENSSL_MODE)" in linux:offline) echo -ldl;; *) echo "";; esac'
 
 CPPFLAGS ?=
 CFLAGS ?= -g -O1 -fsanitize=address,leak -Wall -Wextra -pthread
 LDFLAGS ?= -fsanitize=address,leak -pthread
 LDLIBS ?=
 
-KAMI_CPPFLAGS = -iquote $(STAGE_INCLUDE) -I$(NOSIX_INCLUDEDIR) -I$(OPENSSL_INCLUDEDIR)
+KAMI_CPPFLAGS = -iquote $(STAGE_INCLUDE) -I$(NOSIX_INCLUDEDIR) $(OPENSSL_HEADER_FLAGS)
 # Both .STAGE/bin and PREFIX/bin resolve their own private NOSIX runtime.
 KAMI_LDFLAGS = -L$(STAGE_PRIVATE_LIB) -Wl,-z,origin -Wl,-rpath,'$$ORIGIN/../lib/kaminowaku'
-KAMI_LDLIBS = -lnosix $(OPENSSL_LIBDIR)/libssl.a $(OPENSSL_LIBDIR)/libcrypto.a $(OPENSSL_SYSTEM_LIBS)
+KAMI_LDLIBS = -lnosix $(OPENSSL_LINK_FLAGS) $(OPENSSL_SYSTEM_LIBS)
 
 all: runtime-check
-	@$(MAKE) prepare-stage
-	@$(MAKE) build
-	@$(MAKE) finalize-stage
+	@$(MAKE) OPENSSL_MODE=$(OPENSSL_MODE) OPENSSL_PKG_CONFIG=$(OPENSSL_PKG_CONFIG) prepare-stage
+	@$(MAKE) OPENSSL_MODE=$(OPENSSL_MODE) OPENSSL_PKG_CONFIG=$(OPENSSL_PKG_CONFIG) build
+	@$(MAKE) OPENSSL_MODE=$(OPENSSL_MODE) OPENSSL_PKG_CONFIG=$(OPENSSL_PKG_CONFIG) finalize-stage
 
 build: stage-check objects
 	@set -eu; \
@@ -67,10 +73,17 @@ runtime-check:
 	@set -eu; \
 	[ -f "$(NOSIX_INCLUDEDIR)/nosix.h" ] || { echo "ERROR: Missing packaged NOSIX headers."; exit 1; }; \
 	[ -f "$(NOSIX_ABI_ENV)" ] || { echo "ERROR: Missing NOSIX ABI metadata."; exit 1; }; \
-	[ -f "$(OPENSSL_INCLUDEDIR)/openssl/ssl.h" ] || { echo "ERROR: Missing OpenSSL headers for $(PLATFORM_TAG)."; exit 1; }; \
-	[ -f "$(OPENSSL_INCLUDEDIR)/openssl/configuration.h" ] || { echo "ERROR: Missing OpenSSL generated configuration for $(PLATFORM_TAG)."; exit 1; }; \
-	[ -s "$(OPENSSL_LIBDIR)/libssl.a" ] || { echo "ERROR: Missing libssl.a for $(PLATFORM_TAG)."; exit 1; }; \
-	[ -s "$(OPENSSL_LIBDIR)/libcrypto.a" ] || { echo "ERROR: Missing libcrypto.a for $(PLATFORM_TAG)."; exit 1; }
+	case "$(OPENSSL_MODE)" in \
+		offline) \
+			[ -f "$(OPENSSL_INCLUDEDIR)/openssl/ssl.h" ] || { echo "ERROR: Missing bundled OpenSSL headers for $(PLATFORM_TAG)."; exit 1; }; \
+			[ -f "$(OPENSSL_INCLUDEDIR)/openssl/configuration.h" ] || { echo "ERROR: Missing bundled generated OpenSSL headers for $(PLATFORM_TAG)."; exit 1; }; \
+			[ -s "$(OPENSSL_LIBDIR)/libssl.a" ] || { echo "ERROR: Bundled libssl.a is missing for $(PLATFORM_TAG)."; exit 1; }; \
+			[ -s "$(OPENSSL_LIBDIR)/libcrypto.a" ] || { echo "ERROR: Bundled libcrypto.a is missing for $(PLATFORM_TAG)."; exit 1; } ;; \
+		online) \
+			command -v "$(OPENSSL_PKG_CONFIG)" >/dev/null 2>&1 || { echo "ERROR: pkg-config/pkgconf missing for online OpenSSL build."; exit 1; }; \
+			"$(OPENSSL_PKG_CONFIG)" --atleast-version=3.0.0 openssl || { echo "ERROR: System OpenSSL >=3.0 development metadata is required."; exit 1; } ;; \
+		*) echo "ERROR: OPENSSL_MODE must be online or offline."; exit 1 ;; \
+	esac
 
 prepare-stage:
 	@set -eu; \
@@ -78,6 +91,7 @@ prepare-stage:
 	mkdir -p "$(STAGE_OBJ)" "$(STAGE_BIN)" "$(STAGE_META)"; \
 	rm -rf "$(STAGE_INCLUDE)"; \
 	mkdir -p "$(STAGE_INCLUDE)"; \
+	printf 'OPENSSL_MODE=%s\n' "$(OPENSSL_MODE)" > "$(STAGE_META)/build-mode.env"; \
 	DUP_HEADERS=$$(find "$(SOURCE_ROOT)" -type f -name '*.h' -exec basename {} \; | LC_ALL=C sort | uniq -d); \
 	if [ -n "$$DUP_HEADERS" ]; then \
 		echo "ERROR: Duplicate project header basenames cannot be projected into $(STAGE_INCLUDE):"; \
@@ -131,10 +145,9 @@ finalize-stage:
 	@rm -rf "$(STAGE_INCLUDE)"
 	@echo "[STAGE] removed temporary header projection; objects retained"
 
-install: all
-	install -d $(BINDIR)
-	install -m 0755 "$(TARGET_PATH)" "$(BINDIR)/$(TARGET)"
-	@echo "Installed to $(BINDIR)/$(TARGET)"
+# Direct make installs go through the same validated installer as consumers.
+install:
+	@./install.sh install BUILD=$(BUILD) --$(OPENSSL_MODE)
 
 clean:
 	rm -rf "$(STAGE_ROOT)"
@@ -150,8 +163,12 @@ info:
 	@echo "PLATFORM_TAG=$(PLATFORM_TAG)"
 	@echo "NOSIX_PACKAGE_LIBDIR=$(NOSIX_PACKAGE_LIBDIR)"
 	@echo "STAGE_PRIVATE_LIB=$(STAGE_PRIVATE_LIB)"
+	@echo "OPENSSL_MODE=$(OPENSSL_MODE)"
+	@echo "OPENSSL_PKG_CONFIG=$(OPENSSL_PKG_CONFIG)"
 	@echo "OPENSSL_INCLUDEDIR=$(OPENSSL_INCLUDEDIR)"
 	@echo "OPENSSL_LIBDIR=$(OPENSSL_LIBDIR)"
+	@echo "OPENSSL_HEADER_FLAGS=$(OPENSSL_HEADER_FLAGS)"
+	@echo "OPENSSL_LINK_FLAGS=$(OPENSSL_LINK_FLAGS)"
 	@echo "CPPFLAGS=$(CPPFLAGS)"
 	@echo "KAMI_CPPFLAGS=$(KAMI_CPPFLAGS)"
 	@echo "CFLAGS=$(CFLAGS)"
