@@ -1,5 +1,6 @@
 // Copyright 2026 Jamison A. Drapeau
 #include "book_tls.h"
+#include "kwire_deadline.h"
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <limits.h>
@@ -12,8 +13,25 @@ struct BOOK_TLS {
         SSL *          ssl;
         BIO_METHOD *   method;
         int32_t        timeout_ms;
+        KWIRE_DEADLINE deadline;
+        int8_t         deadline_active;
         nosix_status_t last_status;
 };
+
+static int book_tls_begin_deadline(BOOK_TLS * tls) {
+        if (!tls || kwire_deadline_start(&tls->deadline, tls->timeout_ms) != NORMAL) {
+                return ABNORMAL;
+        }
+        tls->deadline_active = ISTRUE;
+        return NORMAL;
+}
+
+static int32_t book_tls_remaining_ms(BOOK_TLS * tls) {
+        if (!tls) return -1;
+        return tls->deadline_active == ISTRUE
+                ? kwire_deadline_remaining_ms(&tls->deadline)
+                : tls->timeout_ms;
+}
 
 static int book_tls_bio_create(BIO * bio) {
         BIO_set_init(bio, 1);
@@ -40,18 +58,25 @@ static int book_tls_bio_write(BIO * bio, const char * data, int length) {
         BOOK_TLS * tls;
         size_t written = 0;
         nosix_status_t status;
+        int32_t remaining_ms;
 
         if (!bio || !data || length <= 0) return 0;
         tls = (BOOK_TLS*)BIO_get_data(bio);
         if (!tls || !tls->session) return -1;
 
         BIO_clear_retry_flags(bio);
+        remaining_ms = book_tls_remaining_ms(tls);
+        if (remaining_ms <= 0) {
+                tls->last_status = remaining_ms == 0 ? NOSIX_TIMEOUT : NOSIX_ERR_SYSTEM;
+                if (remaining_ms == 0) BIO_set_retry_write(bio);
+                return -1;
+        }
         status = books_session_stream_write(
                 tls->session,
                 (const uint8_t*)data,
                 (size_t)length,
                 &written,
-                tls->timeout_ms
+                remaining_ms
         );
         tls->last_status = status;
 
@@ -64,18 +89,25 @@ static int book_tls_bio_read(BIO * bio, char * data, int length) {
         BOOK_TLS * tls;
         size_t received = 0;
         nosix_status_t status;
+        int32_t remaining_ms;
 
         if (!bio || !data || length <= 0) return 0;
         tls = (BOOK_TLS*)BIO_get_data(bio);
         if (!tls || !tls->session) return -1;
 
         BIO_clear_retry_flags(bio);
+        remaining_ms = book_tls_remaining_ms(tls);
+        if (remaining_ms <= 0) {
+                tls->last_status = remaining_ms == 0 ? NOSIX_TIMEOUT : NOSIX_ERR_SYSTEM;
+                if (remaining_ms == 0) BIO_set_retry_read(bio);
+                return -1;
+        }
         status = books_session_stream_read(
                 tls->session,
                 (uint8_t*)data,
                 (size_t)length,
                 &received,
-                tls->timeout_ms
+                remaining_ms
         );
         tls->last_status = status;
 
@@ -154,6 +186,7 @@ int book_tls_open(
                 if (SSL_set_tlsext_host_name(created->ssl, server_name) != 1) goto fail;
         }
 
+        if (book_tls_begin_deadline(created) != NORMAL) goto fail;
         rc = SSL_connect(created->ssl);
         if (rc != 1) goto fail;
 
@@ -191,6 +224,7 @@ book_tls_status_t book_tls_write(
         if (length == 0) return BOOK_TLS_OK;
         if (length > (c_size_t)INT_MAX) return BOOK_TLS_ERROR;
 
+        if (book_tls_begin_deadline(tls) != NORMAL) return BOOK_TLS_ERROR;
         rc = SSL_write(tls->ssl, data, (int)length);
         if (rc > 0) {
                 if (written) *written = (c_size_t)rc;
@@ -212,6 +246,7 @@ book_tls_status_t book_tls_read(
                 return BOOK_TLS_ERROR;
         }
 
+        if (book_tls_begin_deadline(tls) != NORMAL) return BOOK_TLS_ERROR;
         rc = SSL_read(tls->ssl, data, (int)capacity);
         if (rc > 0) {
                 if (received) *received = (c_size_t)rc;
@@ -227,6 +262,9 @@ void book_tls_close(BOOK_TLS ** tls) {
         state = *tls;
 
         if (state->ssl) {
+                // Cleanup must not inherit an entire read timeout.
+                (void)kwire_deadline_start(&state->deadline, 1);
+                state->deadline_active = ISTRUE;
                 (void)SSL_shutdown(state->ssl);
                 SSL_free(state->ssl);
                 state->ssl = NULL;
