@@ -4,6 +4,7 @@
 #include "kportscan.h"
 #include "kbanner.h"
 #include "kportscan_internal.h"
+#include "kportspec.h"
 #include "kscan.h"
 #include "kui.h"
 #include "tlib.h"
@@ -11,33 +12,9 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <time.h>
-
-static int kportscan_plan_set_port(
-        uint8_t * BITMAP,
-        uint32_t * COUNT,
-        unsigned long PORT
-) {
-        size_t BYTE;
-        uint8_t MASK;
-
-        if (!BITMAP || !COUNT || PORT == 0 || PORT >= MAX_PORTS) {
-                return ABNORMAL;
-        }
-
-        BYTE = (size_t)PORT >> 3;
-        MASK = (uint8_t)(1U << (PORT & 7U));
-
-        if ((BITMAP[BYTE] & MASK) == 0) {
-                BITMAP[BYTE] |= MASK;
-                (*COUNT)++;
-        }
-
-        return NORMAL;
-}
 
 int8_t kportscan_plan_has_port(
         const uint8_t * BITMAP,
@@ -55,123 +32,6 @@ int8_t kportscan_plan_has_port(
         return (BITMAP[BYTE] & MASK) ? ISTRUE : ISFALSE;
 }
 
-static int kportscan_parse_number(
-        const char * TEXT,
-        unsigned long * VALUE
-) {
-        char * END = NULL;
-        unsigned long PARSED;
-
-        if (!TEXT || TEXT[0] == 0x00 || !VALUE) {
-                return ABNORMAL;
-        }
-
-        errno = 0;
-        PARSED = strtoul(TEXT, &END, 10);
-
-        if (
-                errno != 0
-                || !END
-                || *END != 0x00
-                || PARSED == 0
-                || PARSED >= MAX_PORTS
-        ) {
-                return ABNORMAL;
-        }
-
-        *VALUE = PARSED;
-        return NORMAL;
-}
-
-static int kportscan_parse_segment(
-        char * SEGMENT,
-        uint8_t * BITMAP,
-        uint32_t * COUNT
-) {
-        char * DASH;
-        unsigned long FIRST;
-        unsigned long LAST;
-
-        if (!SEGMENT || SEGMENT[0] == 0x00) {
-                return ABNORMAL;
-        }
-
-        DASH = strchr(SEGMENT, '-');
-
-        if (!DASH) {
-                if (kportscan_parse_number(SEGMENT, &FIRST) != NORMAL) {
-                        return ABNORMAL;
-                }
-                return kportscan_plan_set_port(BITMAP, COUNT, FIRST);
-        }
-
-        if (strchr(DASH + 1, '-') != NULL) {
-                return ABNORMAL;
-        }
-
-        *DASH = 0x00;
-
-        if (
-                kportscan_parse_number(SEGMENT, &FIRST) != NORMAL
-                || kportscan_parse_number(DASH + 1, &LAST) != NORMAL
-                || LAST < FIRST
-        ) {
-                return ABNORMAL;
-        }
-
-        for (unsigned long PORT = FIRST; PORT <= LAST; PORT++) {
-                if (kportscan_plan_set_port(BITMAP, COUNT, PORT) != NORMAL) {
-                        return ABNORMAL;
-                }
-        }
-
-        return NORMAL;
-}
-
-static int kportscan_parse_expression(
-        const char * EXPRESSION,
-        uint8_t * BITMAP,
-        uint32_t * COUNT
-) {
-        char * COPY;
-        char * SAVE = NULL;
-        char * SEGMENT;
-        int STATUS = NORMAL;
-
-        if (!EXPRESSION || !BITMAP || !COUNT) {
-                return ABNORMAL;
-        }
-
-        COPY = strdup(EXPRESSION);
-        if (!COPY) {
-                return ABNORMAL;
-        }
-
-        SEGMENT = strtok_r(COPY, ",", &SAVE);
-        if (!SEGMENT) {
-                STATUS = ABNORMAL;
-                goto CLEANUP;
-        }
-
-        while (SEGMENT) {
-                if (
-                        kportscan_parse_segment(
-                                SEGMENT,
-                                BITMAP,
-                                COUNT
-                        ) != NORMAL
-                ) {
-                        STATUS = ABNORMAL;
-                        goto CLEANUP;
-                }
-                SEGMENT = strtok_r(NULL, ",", &SAVE);
-        }
-
-CLEANUP:
-        free(COPY);
-        return STATUS;
-}
-
 static int kportscan_parse_plan(
         _carry_forward * _prog_data,
         KPORTSCAN_PLAN * PLAN
@@ -182,6 +42,8 @@ static int kportscan_parse_plan(
                 KPORTSCAN_PARSE_UDP
         } MODE = KPORTSCAN_PARSE_NONE;
 
+        KPORT_SPEC TCP_SPEC = {0};
+        KPORT_SPEC UDP_SPEC = {0};
         int8_t EXPECT_VALUE = ISFALSE;
         int8_t SAW_VALUE = ISFALSE;
 
@@ -235,26 +97,15 @@ static int kportscan_parse_plan(
                         return ABNORMAL;
                 }
 
-                if (MODE == KPORTSCAN_PARSE_TCP) {
-                        if (
-                                kportscan_parse_expression(
-                                        TOKEN,
-                                        PLAN->TCP_PORTS,
-                                        &PLAN->TCP_COUNT
-                                ) != NORMAL
-                        ) {
-                                return ABNORMAL;
-                        }
-                } else {
-                        if (
-                                kportscan_parse_expression(
-                                        TOKEN,
-                                        PLAN->UDP_PORTS,
-                                        &PLAN->UDP_COUNT
-                                ) != NORMAL
-                        ) {
-                                return ABNORMAL;
-                        }
+                if (
+                        kportspec_extend(
+                                TOKEN,
+                                MODE == KPORTSCAN_PARSE_TCP
+                                        ? &TCP_SPEC
+                                        : &UDP_SPEC
+                        ) != NORMAL
+                ) {
+                        return ABNORMAL;
                 }
 
                 EXPECT_VALUE = ISFALSE;
@@ -266,24 +117,20 @@ static int kportscan_parse_plan(
         }
 
         if (PLAN->FULL == ISTRUE) {
-                for (unsigned long PORT = 1; PORT < MAX_PORTS; PORT++) {
-                        (void)kportscan_plan_set_port(
-                                PLAN->TCP_PORTS,
-                                &PLAN->TCP_COUNT,
-                                PORT
-                        );
-                        (void)kportscan_plan_set_port(
-                                PLAN->UDP_PORTS,
-                                &PLAN->UDP_COUNT,
-                                PORT
-                        );
+                if (kportspec_parse("1-65535", &TCP_SPEC) != NORMAL) {
+                        return ABNORMAL;
                 }
-                return NORMAL;
+                UDP_SPEC = TCP_SPEC;
         }
 
-        if (PLAN->TCP_COUNT == 0 && PLAN->UDP_COUNT == 0) {
+        if (TCP_SPEC.count == 0 && UDP_SPEC.count == 0) {
                 return ABNORMAL;
         }
+
+        memcpy(PLAN->TCP_PORTS, TCP_SPEC.bits, sizeof(PLAN->TCP_PORTS));
+        memcpy(PLAN->UDP_PORTS, UDP_SPEC.bits, sizeof(PLAN->UDP_PORTS));
+        PLAN->TCP_COUNT = TCP_SPEC.count;
+        PLAN->UDP_COUNT = UDP_SPEC.count;
 
         return NORMAL;
 }

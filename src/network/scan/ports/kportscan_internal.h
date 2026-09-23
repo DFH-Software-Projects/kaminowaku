@@ -4,12 +4,17 @@
 
 #include "data.h"
 #include "kportscan.h"
+#include "kportspec.h"
 #include "kwire.h"
 
 #include <stddef.h>
 #include <stdint.h>
 
-#define KPORTSCAN_BITMAP_BYTES       (MAX_PORTS / 8U)
+#if MAX_PORTS != KPORTSPEC_MAX_PORTS
+#error "Kaminowaku port bounds must match the shared port-spec parser."
+#endif
+
+#define KPORTSCAN_BITMAP_BYTES       KPORTSPEC_BITMAP_BYTES
 #define KPORTSCAN_WINDOW_HARD        4096U
 #define KPORTSCAN_TCP_HEADER_LENGTH    20U
 #define KPORTSCAN_UDP_HEADER_LENGTH     8U
