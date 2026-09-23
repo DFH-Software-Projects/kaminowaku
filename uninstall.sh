@@ -6,7 +6,7 @@ set -eu
 PREFIX="${PREFIX:-/usr/local}"
 BINDIR="${PREFIX}/bin"
 INCLUDEDIR="${PREFIX}/include"
-LIBDIR="${PREFIX}/lib"
+LIBDIR="${PREFIX}/lib/kaminowaku"
 SHARE_DIR="${PREFIX}/share/kaminowaku"
 
 fail() {
@@ -22,32 +22,14 @@ rm -f "${BINDIR}/kaminowaku"
 echo "[kaminowaku] removing installed runtime assets"
 rm -rf "${SHARE_DIR}"
 
-echo "[nosix] removing installed public headers"
-rm -f \
-    "${INCLUDEDIR}/nosix.h" \
-    "${INCLUDEDIR}/nosix_poll.h" \
-    "${INCLUDEDIR}/nosix_datagram.h"
-
-echo "[nosix] removing installed shared libraries"
-rm -f "${LIBDIR}"/libnosix.so "${LIBDIR}"/libnosix.so.*
-
-echo "[nosix] refreshing shared-library loader state"
-case "$(uname -s)" in
-    Linux)
-        if command -v ldconfig >/dev/null 2>&1; then
-            ldconfig
-        fi
-        ;;
-    FreeBSD)
-        if command -v ldconfig >/dev/null 2>&1; then
-            ldconfig -m "${LIBDIR}" >/dev/null 2>&1 || true
-        fi
-        ;;
-esac
+echo "[nosix] removing Kaminowaku-owned private NOSIX runtime"
+rm -f "$LIBDIR/libnosix.so" "$LIBDIR/libnosix.so.1" "$LIBDIR/libnosix.so.1.4.0"
+rmdir "$LIBDIR" 2>/dev/null || true
+echo "[i] System NOSIX and OpenSSL installations have not been modified."
 
 echo "[kaminowaku] removing user data"
 rm -rf /root/.kaminowaku
 rm -rf /home/*/.kaminowaku
 rm -rf /usr/home/*/.kaminowaku
 
-echo "Kaminowaku and the packaged NOSIX ABI have been uninstalled."
+echo "Kaminowaku and its private NOSIX runtime have been uninstalled."

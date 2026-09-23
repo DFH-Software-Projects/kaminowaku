@@ -68,11 +68,14 @@ The installer requires:
 
 - `clang`
 - `make`
-- `pkg-config` or `pkgconf`
-- OpenSSL development files
-- a compatible NOSIX ABI
+- the bundled static OpenSSL 3.5.8 archives for the target OS
+- the bundled compatible NOSIX ABI
 
-The release tree includes the packaged NOSIX ABI under `nosix_abi/`. The installer validates that bundled ABI for the detected platform and architecture, reconstructs the required shared-library links, and installs it with Kaminowaku.
+The installer invokes **no package manager** and performs **no dependency downloads**. `clang` and `make` must already exist on the target for the current source-build installer. Both OpenSSL archives and the NOSIX ABI must be staged before release packaging.
+
+The release tree includes the packaged NOSIX ABI under `libs/nosix/`. The installer validates that bundled ABI for the detected platform and architecture, reconstructs the required shared-library links, and installs it with Kaminowaku.
+
+Vendored OpenSSL is prepared on native Linux and FreeBSD build hosts before release. Instructions: [Bundled OpenSSL](libs/openssl/README.md). The installer does not build OpenSSL.
 
 Required NOSIX components:
 
@@ -96,7 +99,7 @@ cd kaminowaku
 ./install.sh check
 ```
 
-The preflight check validates the source tree, runtime assets, OpenSSL development metadata, and the NOSIX/OpenSSL ABI link path.
+The preflight check validates the source tree, runtime assets, vendored OpenSSL archives/checksums, and the NOSIX/OpenSSL ABI link path.
 
 ### Install a release build
 
@@ -149,8 +152,7 @@ It removes:
 
 - `/usr/local/bin/kaminowaku`;
 - `/usr/local/share/kaminowaku/`;
-- the installed NOSIX public headers under `/usr/local/include/`;
-- `libnosix.so` and its versioned links/libraries under `/usr/local/lib/`;
+- Kaminowaku's private NOSIX shared libraries under `/usr/local/lib/kaminowaku/` (not global NOSIX or OpenSSL);
 - `/root/.kaminowaku`;
 - matching `.kaminowaku` datastores under `/home/*/` and `/usr/home/*/`.
 
