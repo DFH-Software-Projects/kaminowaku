@@ -16,7 +16,7 @@ Banner source: [Emoji Combos](https://emojicombos.com/)
 
 # Kaminowaku
 
-**Kaminowaku 0.1.0** is a low-level network enumeration framework for Linux and FreeBSD. It organizes work into projects and targets, performs ICMP, DNS, TCP, UDP, banner, HTTP/TLS, and Book-driven enumeration, and persists scan evidence alongside each target.
+**Kaminowaku 0.1.1** is a low-level network enumeration framework for Linux and FreeBSD. It organizes work into projects and targets, performs ICMP, DNS, TCP, UDP, banner, HTTP/TLS, and Book-driven enumeration, and persists scan evidence alongside each target.
 
 Kaminowaku uses **NOSIX** for network I/O and **OpenSSL** for TLS and cryptographic support. Books use Lua syntax but execute through Kaminowaku's own C runtime; an external Lua interpreter is not required.
 
