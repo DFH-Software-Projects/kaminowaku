@@ -33,15 +33,25 @@ MAIN_TLS="./books/main/tls.lua"
 MAIN_RESULT="./books/main/result.lua"
 MODULE_SSH="./books/modules/ssh.lua"
 MODULE_HTTP="./books/modules/http.lua"
-OPENSSL_PKG=""
-PACKAGED_NOSIX_ROOT="./nosix_abi"
+OPENSSL_VERSION="3.5.8"
+OPENSSL_SHA256="a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2"
+OPENSSL_ROOT="./libs/openssl"
+OPENSSL_ARCHIVE="$OPENSSL_ROOT/openssl-$OPENSSL_VERSION.tar.gz"
+OPENSSL_LICENSE="$OPENSSL_ROOT/LICENSE.txt"
+OPENSSL_INCLUDEDIR=""
+OPENSSL_LIBDIR=""
+OPENSSL_ABI_ENV=""
+OPENSSL_EXTRA_LIBS=""
+PRIVATE_LIBDIR="$LIBDIR/kaminowaku"
+PACKAGED_NOSIX_ROOT="./libs/nosix"
 PACKAGED_NOSIX_LICENSE="${PACKAGED_NOSIX_ROOT}/LICENSE"
 PACKAGED_NOSIX_MANIFEST="${PACKAGED_NOSIX_ROOT}/BUILD-MANIFEST.txt"
 PACKAGED_NOSIX=0
 PLATFORM_TAG=""
 ARCH_TAG=""
 NOSIX_INCLUDEDIR="$INCLUDEDIR"
-NOSIX_LIBDIR="$LIBDIR"
+NOSIX_LIBDIR="$STAGE_ROOT/deps/nosix/lib"
+NOSIX_SOURCE_LIBDIR=""
 NOSIX_ABI_ENV=""
 NOSIX_LINKER_NAME=""
 NOSIX_SONAME_NAME=""
@@ -54,8 +64,8 @@ usage() {
     echo "  ./install.sh [target] [BUILD=debug|release]"
     echo ""
     echo "Targets:"
-    echo "  check     Validate compiler, dependencies, shipped NOSIX ABI, and runtime assets"
-    echo "  install   Clean, build, install binary, NOSIX ABI, licenses, and runtime assets (default)"
+    echo "  check     Validate compiler, bundled OpenSSL, packaged NOSIX ABI, and assets"
+    echo "  install   Build/install binary, private NOSIX ABI, licenses, and assets (default)"
     echo "  all       Clean and build only"
     echo "  clean     Remove build artifacts"
     echo "  info      Show build/install configuration"
@@ -118,75 +128,49 @@ command -v make >/dev/null 2>&1 || fail "make not found."
 UNAME_S=$(uname -s)
 UNAME_M=$(uname -m)
 
-openssl_ready() {
-    command -v pkg-config >/dev/null 2>&1 \
-        && pkg-config --exists openssl 2>/dev/null
-}
-
-install_openssl_dependency() {
-    if openssl_ready; then
-        OPENSSL_PKG="openssl"
-        return 0
-    fi
-
-    [ "$(id -u)" -eq 0 ] || fail "The install target requires root privileges before OpenSSL can be installed."
-
-    echo "[deps] OpenSSL development dependency is missing; installing it."
-
-    case "$UNAME_S" in
-        Linux)
-            command -v apt-get >/dev/null 2>&1 \
-                || fail "OpenSSL is missing and apt-get is not available on this Linux target."
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update \
-                || fail "apt-get update failed while preparing OpenSSL."
-            apt-get install -y libssl-dev pkg-config \
-                || fail "Failed to install libssl-dev/pkg-config."
-            ;;
-        FreeBSD)
-            command -v pkg >/dev/null 2>&1 \
-                || fail "OpenSSL is missing and pkg is not available on this FreeBSD target."
-            if ! pkg -N >/dev/null 2>&1; then
-                ASSUME_ALWAYS_YES=yes pkg bootstrap -f \
-                    || fail "Failed to bootstrap FreeBSD pkg."
-            fi
-            ASSUME_ALWAYS_YES=yes pkg install -y openssl pkgconf \
-                || fail "Failed to install openssl/pkgconf."
-            ;;
-        *)
-            fail "Automatic OpenSSL installation is unsupported on $UNAME_S."
-            ;;
-    esac
-
-    command -v pkg-config >/dev/null 2>&1 \
-        || fail "OpenSSL installation completed but pkg-config/pkgconf is unavailable."
-    pkg-config --exists openssl 2>/dev/null \
-        || fail "OpenSSL installation completed but pkg-config metadata is still unavailable."
-
-    OPENSSL_PKG="openssl"
-    echo "[deps] OpenSSL ready: $(pkg-config --modversion openssl 2>/dev/null || echo installed)"
-}
-
-check_openssl_dependency() {
-    command -v pkg-config >/dev/null 2>&1 \
-        || fail "pkg-config/pkgconf not found. Run the install target to acquire OpenSSL dependencies."
-    pkg-config --exists openssl 2>/dev/null \
-        || fail "OpenSSL development metadata not found. Run the install target to acquire it."
-    OPENSSL_PKG="openssl"
-}
-
-# Clean does not require the runtime toolchain to be installed.
-if [ "$TARGET" != "clean" ]; then
-    command -v clang >/dev/null 2>&1 || fail "clang not found. Install clang before continuing."
-
-    CC_VERSION=$(clang --version 2>/dev/null || true)
-    echo "$CC_VERSION" | grep -qi "clang" || fail "'clang' is not a valid clang compiler."
-
-    if [ "$TARGET" = "install" ]; then
-        install_openssl_dependency
+# No package-manager access is performed on installation targets.
+sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    elif command -v sha256 >/dev/null 2>&1; then
+        sha256 -q "$1"
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{print $1}'
     else
-        check_openssl_dependency
+        fail "SHA256 tool missing (sha256sum, sha256, or shasum)."
     fi
+}
+
+check_packaged_openssl() {
+    [ -f "$OPENSSL_ARCHIVE" ] || fail "Release missing bundled OpenSSL source: $OPENSSL_ARCHIVE"
+    [ -f "$OPENSSL_LICENSE" ] || fail "Release missing original OpenSSL license: $OPENSSL_LICENSE"
+    EXPECTED_LINE=$(awk 'NR==1 {print $1}' "$OPENSSL_ROOT/SHA256")
+    [ "$EXPECTED_LINE" = "$OPENSSL_SHA256" ] || fail "Unexpected OpenSSL checksum in release."
+    [ "$(sha256_file "$OPENSSL_ARCHIVE")" = "$OPENSSL_SHA256" ] \
+        || fail "Bundled OpenSSL source checksum mismatch."
+    [ -f "$OPENSSL_ABI_ENV" ] || fail "Missing packaged OpenSSL ABI metadata for $PLATFORM_TAG."
+    [ -f "$OPENSSL_INCLUDEDIR/openssl/ssl.h" ] || fail "Missing packaged OpenSSL headers."
+    [ -f "$OPENSSL_LIBDIR/libssl.a" ] || fail "Missing packaged OpenSSL libssl.a."
+    [ -f "$OPENSSL_LIBDIR/libcrypto.a" ] || fail "Missing packaged OpenSSL libcrypto.a."
+    grep -qx "OPENSSL_VERSION=$OPENSSL_VERSION" "$OPENSSL_ABI_ENV" || fail "Wrong OpenSSL version."
+    grep -qx "PLATFORM=$PLATFORM_TAG" "$OPENSSL_ABI_ENV" || fail "Wrong OpenSSL platform."
+    grep -qx "ARCH=$ARCH_TAG" "$OPENSSL_ABI_ENV" || fail "Wrong OpenSSL architecture."
+    grep -qx "SHA256=$OPENSSL_SHA256" "$OPENSSL_ABI_ENV" || fail "Wrong OpenSSL source checksum."
+    SSL_EXPECTED=$(sed -n 's/^LIBSSL_SHA256=//p' "$OPENSSL_ABI_ENV")
+    CRYPTO_EXPECTED=$(sed -n 's/^LIBCRYPTO_SHA256=//p' "$OPENSSL_ABI_ENV")
+    [ -n "$SSL_EXPECTED" ] && [ -n "$CRYPTO_EXPECTED" ] || fail "Missing OpenSSL binary digests."
+    [ "$(sha256_file "$OPENSSL_LIBDIR/libssl.a")" = "$SSL_EXPECTED" ] \
+        || fail "libssl.a digest mismatch."
+    [ "$(sha256_file "$OPENSSL_LIBDIR/libcrypto.a")" = "$CRYPTO_EXPECTED" ] \
+        || fail "libcrypto.a digest mismatch."
+    echo "[openssl] packaged $OPENSSL_VERSION verified for $PLATFORM_TAG/$ARCH_TAG"
+}
+
+# Clean and info require neither runtime libraries nor a compiler.
+if [ "$TARGET" = "check" ] || [ "$TARGET" = "install" ] || [ "$TARGET" = "all" ]; then
+    command -v clang >/dev/null 2>&1 || fail "clang not found."
+    CC_VERSION=$(clang --version 2>/dev/null || true)
+    echo "$CC_VERSION" | grep -qi "clang" || fail "Invalid clang compiler."
 fi
 
 [ -f ./Makefile ] || fail "Makefile not found in $(pwd)."
@@ -234,8 +218,15 @@ if [ -d "$PACKAGED_NOSIX_ROOT" ]; then
     [ "$ARCH_TAG" != "unknown" ] || fail "Packaged NOSIX ABI is unsupported on $UNAME_M."
     PACKAGED_NOSIX=1
     NOSIX_INCLUDEDIR="$PACKAGED_NOSIX_ROOT/include"
-    NOSIX_LIBDIR="$PACKAGED_NOSIX_ROOT/$PLATFORM_TAG/lib"
+    NOSIX_SOURCE_LIBDIR="$PACKAGED_NOSIX_ROOT/$PLATFORM_TAG/lib"
     NOSIX_ABI_ENV="$PACKAGED_NOSIX_ROOT/$PLATFORM_TAG/abi.env"
+fi
+
+OPENSSL_INCLUDEDIR="$OPENSSL_ROOT/$PLATFORM_TAG/include"
+OPENSSL_LIBDIR="$OPENSSL_ROOT/$PLATFORM_TAG/lib"
+OPENSSL_ABI_ENV="$OPENSSL_ROOT/$PLATFORM_TAG/abi.env"
+if [ "$PLATFORM_TAG" = "linux" ]; then
+    OPENSSL_EXTRA_LIBS="-ldl"
 fi
 
 validate_abi_name() {
@@ -284,10 +275,11 @@ prepare_packaged_nosix_abi() {
             || fail "Packaged NOSIX header missing: $NOSIX_INCLUDEDIR/$header"
     done
 
-    [ -d "$NOSIX_LIBDIR" ] || fail "Packaged NOSIX library directory missing: $NOSIX_LIBDIR"
-    [ -f "$NOSIX_LIBDIR/$REAL_NAME" ] \
-        || fail "Packaged NOSIX real library missing: $NOSIX_LIBDIR/$REAL_NAME"
-
+    [ -d "$NOSIX_SOURCE_LIBDIR" ] || fail "Missing packaged NOSIX directory: $NOSIX_SOURCE_LIBDIR"
+    [ -f "$NOSIX_SOURCE_LIBDIR/$REAL_NAME" ] || fail "Missing packaged NOSIX ABI: $REAL_NAME"
+    # Build linker symlinks under .STAGE, leaving the release payload unchanged.
+    mkdir -p "$NOSIX_LIBDIR"
+    cp "$NOSIX_SOURCE_LIBDIR/$REAL_NAME" "$NOSIX_LIBDIR/$REAL_NAME"
     rm -f "$NOSIX_LIBDIR/$LINKER_NAME" "$NOSIX_LIBDIR/$SONAME_NAME"
     ln -s "$REAL_NAME" "$NOSIX_LIBDIR/$SONAME_NAME"
     ln -s "$SONAME_NAME" "$NOSIX_LIBDIR/$LINKER_NAME"
@@ -299,24 +291,7 @@ prepare_packaged_nosix_abi() {
     echo "[nosix] packaged ABI ready: $PLATFORM/$ARCH $REAL_NAME"
 }
 
-refresh_loader_cache() {
-    [ "$PACKAGED_NOSIX" -eq 1 ] || return 0
-
-    case "$UNAME_S" in
-        Linux)
-            command -v ldconfig >/dev/null 2>&1 \
-                || fail "ldconfig not found after installing packaged NOSIX."
-            ldconfig \
-                || fail "Failed to refresh Linux shared-library cache."
-            ;;
-        FreeBSD)
-            if command -v ldconfig >/dev/null 2>&1; then
-                ldconfig -m "$LIBDIR" \
-                    || fail "Failed to refresh FreeBSD shared-library hints for $LIBDIR."
-            fi
-            ;;
-    esac
-}
+# The NOSIX RPATH is private; refreshing the global loader cache is unnecessary.
 
 case "$BUILD" in
     debug)
