@@ -205,34 +205,43 @@ static int book_native_timeout(
         c_size_t index,
         int32_t * timeout_ms
 ) {
+        BOOK_SESSION * session;
         int64_t timeout;
         int32_t maximum;
+        int32_t remaining;
         if (!runtime || !timeout_ms) return ABNORMAL;
+        session = book_runtime_session(runtime);
         maximum = book_native_default_timeout(runtime);
 
         if (index >= argument_count || arguments[index].type == BOOK_VALUE_NIL) {
-                *timeout_ms = maximum;
-                return NORMAL;
+                timeout = maximum;
+        } else {
+                if (
+                        book_native_integer(
+                                runtime, arguments, argument_count,
+                                index, 1, INT32_MAX, &timeout,
+                                "timeout_ms must be a positive integer"
+                        ) != NORMAL
+                ) return ABNORMAL;
+                if (timeout > maximum) {
+                        return book_runtime_native_fail(
+                                runtime,
+                                "timeout_ms exceeds the active profile/native hard maximum"
+                        );
+                }
         }
 
-        if (
-                book_native_integer(
-                        runtime,
-                        arguments,
-                        argument_count,
-                        index,
-                        1,
-                        INT32_MAX,
-                        &timeout,
-                        "timeout_ms must be a positive integer"
-                ) != NORMAL
-        ) return ABNORMAL;
-
-        if (timeout > maximum) {
-                return book_runtime_native_fail(
-                        runtime,
-                        "timeout_ms exceeds the active profile/native hard maximum"
-                );
+        if (session) {
+                remaining = books_session_remaining_ms(session);
+                if (remaining <= 0) {
+                        if (session->termination == BOOK_TERM_NONE) {
+                                books_session_set_termination(session, BOOK_TERM_LIMIT_ERROR);
+                        }
+                        return book_runtime_native_fail(
+                                runtime, "Book hard execution deadline exceeded"
+                        );
+                }
+                if (timeout > remaining) timeout = remaining;
         }
 
         *timeout_ms = (int32_t)timeout;
