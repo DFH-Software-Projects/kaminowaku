@@ -271,7 +271,7 @@ The port scanner separates command parsing/orchestration from protocol-specific 
 ```mermaid
 flowchart TD
     A["cmd_scan.c<br/>scan"] --> B["kportscan_run()"]
-    B --> C["parse TCP/UDP plan"]
+    B --> C["kportspec.c<br/>parse TCP/UDP plan"]
     C --> D["iterate active target(s)"]
     D --> E["kportscan_scan_target()"]
 
@@ -291,6 +291,11 @@ flowchart TD
 
     M --> N["targets_write_petal_data()"]
     N --> O["kportdisplay.c / target display"]
+    P["targets display -p / -b"] --> Q["ktargetdisplay_args.c"]
+    Q --> R["kportspec.c"]
+    Q --> S["kportselect.c<br/>latest OPEN TCP selection"]
+    S --> O
+    O --> T["kportfilter.c<br/>selected TCP observations"]
 ```
 
 Supporting scan infrastructure:
@@ -302,11 +307,15 @@ Supporting scan infrastructure:
 | [`kscan_dispatch.c`](../src/network/scan/kscan_dispatch.c) | dispatch infrastructure |
 | [`kworker.c`](../src/network/scan/kworker.c) | scan worker support |
 | [`kwire.h`](../src/network/scan/kwire.h) | Kaminowaku network/evidence bridge into NOSIX |
+| [`kportspec.c`](../src/network/scan/ports/kportspec.c) | shared single/range/list port-expression parsing and bitmap membership |
 | [`kportscan.c`](../src/network/scan/ports/kportscan.c) | scan plan, target iteration, pacing, PCAP/result orchestration |
 | [`kportscan_tcp.c`](../src/network/scan/ports/kportscan_tcp.c) | TCP scan execution |
 | [`kportscan_udp.c`](../src/network/scan/ports/kportscan_udp.c) | UDP scan execution |
 | [`kbanner.c`](../src/network/scan/ports/kbanner.c) | TCP banner/service enrichment |
-| [`kportdisplay.c`](../src/network/scan/ports/kportdisplay.c) | persisted port-result display |
+| [`kportselect.c`](../src/network/scan/ports/kportselect.c) | latest persisted OPEN TCP selection across selected ports and address families |
+| [`kportfilter.c`](../src/network/scan/ports/kportfilter.c) | renderer-side selected TCP observation filtering |
+| [`kportdisplay.c`](../src/network/scan/ports/kportdisplay.c) | persisted port-result display and selected-port detail/banner rendering |
+| [`ktargetdisplay_args.c`](../src/targets/ktargetdisplay_args.c) | project display argument parsing and shared port-expression accumulation |
 
 ## Book execution path
 
@@ -486,7 +495,8 @@ The following tables list the **direct Kaminowaku headers included by each imple
 | [`src/profile/gprofile.c`](../src/profile/gprofile.c) | `gprofile.h`, `helpers.h` |
 | [`src/profile/profile.c`](../src/profile/profile.c) | `profile.h`, `gprofile.h`, `projects.h`, `kui.h` |
 | [`src/projects/projects.c`](../src/projects/projects.c) | `projects.h`, `helpers.h`, `kui.h` |
-| [`src/targets/targets.c`](../src/targets/targets.c) | `targets.h`, `tlib.h`, `helpers.h`, `kui.h`, `kportdisplay.h`, `kscan.h`, `book_persist.h` |
+| [`src/targets/targets.c`](../src/targets/targets.c) | `targets.h`, `tlib.h`, `helpers.h`, `kui.h`, `kportdisplay.h`, `ktargetdisplay_args.h`, `kscan.h`, `book_persist.h` |
+| [`src/targets/ktargetdisplay_args.c`](../src/targets/ktargetdisplay_args.c) | `ktargetdisplay_args.h`, `kportspec.h` |
 | [`src/targets/targets_guard.c`](../src/targets/targets_guard.c) | `targets.h` |
 | [`src/targets/tlib.c`](../src/targets/tlib.c) | `tlib.h`, `helpers.h`, `kui.h`, `kscan.h` |
 
@@ -512,8 +522,11 @@ The following tables list the **direct Kaminowaku headers included by each imple
 | [`kscan_dispatch.c`](../src/network/scan/kscan_dispatch.c) | `kscan_dispatch.h`, `kscan_internal.h` |
 | [`kworker.c`](../src/network/scan/kworker.c) | `kworker.h` |
 | [`kbanner.c`](../src/network/scan/ports/kbanner.c) | `kbanner.h`, `kportscan_internal.h`, `kscan.h`, `kui.h` |
-| [`kportdisplay.c`](../src/network/scan/ports/kportdisplay.c) | `kportdisplay.h`, `kportscan.h`, `kbanner.h`, `kscan.h`, `kui.h` |
-| [`kportscan.c`](../src/network/scan/ports/kportscan.c) | `kportscan.h`, `kbanner.h`, `kportscan_internal.h`, `kscan.h`, `kui.h`, `tlib.h` |
+| [`kportdisplay.c`](../src/network/scan/ports/kportdisplay.c) | `kportdisplay.h`, `kportfilter.h`, `kportselect.h`, `kportscan.h`, `kbanner.h`, `kscan.h`, `kui.h` |
+| [`kportfilter.c`](../src/network/scan/ports/kportfilter.c) | `kportfilter.h`, `kportspec.h` |
+| [`kportselect.c`](../src/network/scan/ports/kportselect.c) | `kportselect.h`, `kportspec.h` |
+| [`kportspec.c`](../src/network/scan/ports/kportspec.c) | `kportspec.h` |
+| [`kportscan.c`](../src/network/scan/ports/kportscan.c) | `kportscan.h`, `kbanner.h`, `kportscan_internal.h`, `kportspec.h`, `kscan.h`, `kui.h`, `tlib.h` |
 | [`kportscan_tcp.c`](../src/network/scan/ports/kportscan_tcp.c) | `kportscan_internal.h`, `kscan.h`, `kui.h` |
 | [`kportscan_udp.c`](../src/network/scan/ports/kportscan_udp.c) | `kportscan_internal.h`, `kscan.h`, `kui.h` |
 

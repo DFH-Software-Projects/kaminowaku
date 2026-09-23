@@ -705,8 +705,11 @@ back
 | `targets display` | Basic project target and scan summary |
 | `targets display -d` | Full persisted built-in scan detail, followed by stored Book output |
 | `targets display -o` | Only targets/results backed by received-packet observations |
-| `targets display -p 443` | Only targets with TCP/443 marked open |
+| `targets display -p 443` | Only targets with TCP/443 marked open; show selected TCP observations |
+| `targets display -p 22,80,443,8000-8100` | Targets with any selected TCP port open; show only selected TCP observations |
+| `targets display -p 20-25 80 443` | Multiple port expressions are unioned into one filter |
 | `targets display -b 443` | Detailed built-in banner/service data for open TCP/443 |
+| `targets display -b 20-25,80,443` | Targets with any selected TCP port open; add detail/banner data for selected OPEN TCP ports |
 
 Project-context aliases:
 
@@ -715,7 +718,7 @@ Project-context aliases:
 | `d` | `targets display` |
 | `dd` | `targets display -d` |
 
-The `-p` and `-b` filters intentionally keep Book output collapsed.
+The `-p` and `-b` filters use the same port-expression grammar as `scan`: single ports, inclusive ranges, comma-separated mixed lists, and multiple expressions. A target is included when any selected TCP port is currently OPEN in its latest persisted IPv4 or IPv6 result. Both filters keep Book output collapsed; `-p` renders selected TCP observations, while `-b` additionally renders built-in detail and stored banner/service data for selected OPEN TCP ports.
 
 ### Target display
 

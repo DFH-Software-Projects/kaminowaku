@@ -300,7 +300,7 @@ void help(_carry_forward * _prog_data) {
                         kui_add_line("");
                         // Targets display usage:
                         kui_add_line(
-                                "\ttargets display [ -d | -o | -p " ANSI_COLOR_CYAN "<Port>" ANSI_COLOR_RESET " | -b " ANSI_COLOR_CYAN "<Port>" ANSI_COLOR_RESET " ]"
+                                "\ttargets display [ -d | -o | -p " ANSI_COLOR_CYAN "<Ports>..." ANSI_COLOR_RESET " | -b " ANSI_COLOR_CYAN "<Ports>..." ANSI_COLOR_RESET " ]"
                         );
                         kui_add_line(
                                 "\t" NOTICE_INFO 
@@ -317,8 +317,9 @@ void help(_carry_forward * _prog_data) {
                         kui_add_line("\t-n\t: Delete targets with no received-packet observation (del only)");
                         kui_add_line("\t-d\t: Display full persisted scan details followed by every target's stored Book output");
                         kui_add_line("\t-o\t: Display only targets and scan results backed by received packets");
-                        kui_add_line("\t-p\t: Display only targets with the specified TCP port OPEN; book output remains collapsed");
-                        kui_add_line("\t-b\t: Display detailed built-in banner/service data for the specified OPEN TCP port; book output remains collapsed");
+                        kui_add_line("\t-p\t: Display targets with any selected TCP port OPEN; show only selected TCP port observations; Book output remains collapsed");
+                        kui_add_line("\t-b\t: Display targets with any selected TCP port OPEN; add detailed built-in banner/service data for selected OPEN TCP ports; Book output remains collapsed");
+                        kui_add_line("\t\t  Port expressions accept single values, ranges, comma-separated combinations, and multiple expressions.");
                         kui_add_line("");
                 } else if (strcmp((char*)_prog_data->cmd_tokens[1], "ping") == MATCH) {
                         kui_add_line("< Usage: ping [ -4 | -6 ]");
