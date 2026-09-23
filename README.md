@@ -55,7 +55,7 @@ Kaminowaku uses **NOSIX** for network I/O and **OpenSSL** for TLS and cryptograp
 
 ### Supported platforms
 
-The current packaged 0.1.0 release supports:
+The current packaged 0.1.1 release supports:
 
 - Linux x86-64 / amd64
 - FreeBSD x86-64 / amd64
