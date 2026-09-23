@@ -3,6 +3,7 @@
 #define __KPORTDISPLAY__H
 
 #include "data.h"
+#include "kportspec.h"
 
 typedef enum KPORTDISPLAY_MODE {
         KPORTDISPLAY_MODE_COMPACT = 0,
@@ -16,6 +17,12 @@ void kportdisplay_target(
         const unsigned char * TID,
         KPORTDISPLAY_MODE MODE,
         unsigned int FILTER_PORT
+);
+
+int8_t kportdisplay_has_open_tcp_ports(
+        _carry_forward * _prog_data,
+        const unsigned char * TID,
+        const KPORT_SPEC * PORTS
 );
 
 int8_t kportdisplay_has_open_tcp_port(

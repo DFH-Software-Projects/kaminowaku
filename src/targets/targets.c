@@ -1057,10 +1057,10 @@ void targets_display_from_project(_carry_forward * _prog_data) {
 
                 if (
                         REQUIRE_OPEN_PORT == ISTRUE
-                        && kportdisplay_has_open_tcp_port(
+                        && kportdisplay_has_open_tcp_ports(
                                 _prog_data,
                                 CYCLER->TID,
-                                FILTER_PORT
+                                &ARGS.PORTS
                         ) != ISTRUE
                 ) {
                         free(TMP_TARGET);

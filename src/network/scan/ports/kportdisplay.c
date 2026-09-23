@@ -1,6 +1,7 @@
 // Copyright 2026 Jamison A. Drapeau
 #include "kportdisplay.h"
 #include "kportscan.h"
+#include "kportselect.h"
 #include "kbanner.h"
 #include "kscan.h"
 #include "kui.h"
@@ -579,26 +580,14 @@ void kportdisplay_target(
 }
 
 
-int8_t kportdisplay_has_open_tcp_port(
+int8_t kportdisplay_has_open_tcp_ports(
         _carry_forward * _prog_data,
         const unsigned char * TID,
-        unsigned int PORT
+        const KPORT_SPEC * PORTS
 ) {
         char PATH[MAX_PATH];
-        char LINE[512];
-        FILE * FILE_HANDLE;
-        uint64_t LATEST[2] = {0, 0};
-        KPORTSCAN_STATE STATE[2] = {
-                KPORTSCAN_STATE_UNKNOWN,
-                KPORTSCAN_STATE_UNKNOWN
-        };
 
-        if (
-                !_prog_data
-                || !TID
-                || PORT == 0U
-                || PORT >= MAX_PORTS
-        ) {
+        if (!_prog_data || !TID || !PORTS || PORTS->count == 0U) {
                 return ISFALSE;
         }
 
@@ -617,63 +606,32 @@ int8_t kportdisplay_has_open_tcp_port(
                 return ISFALSE;
         }
 
-        FILE_HANDLE = fopen(PATH, "r");
-        if (!FILE_HANDLE) {
+        return kportselect_file_has_open_tcp_ports(PATH, PORTS) == 1
+                ? ISTRUE
+                : ISFALSE;
+}
+
+int8_t kportdisplay_has_open_tcp_port(
+        _carry_forward * _prog_data,
+        const unsigned char * TID,
+        unsigned int PORT
+) {
+        char EXPRESSION[16];
+        KPORT_SPEC PORTS = {0};
+
+        if (PORT == 0U || PORT >= MAX_PORTS) {
                 return ISFALSE;
         }
 
-        while (fgets(LINE, sizeof(LINE), FILE_HANDLE) != NULL) {
-                unsigned long long TIMESTAMP_NS;
-                unsigned int FAMILY;
-                unsigned int PARSED_PORT;
-                unsigned int RX_BYTES;
-                char PROTOCOL[8];
-                char STATE_TEXT[32];
-                char EVIDENCE[64];
-                int FAMILY_INDEX;
-                KPORTSCAN_STATE PARSED_STATE;
-
-                if (LINE[0] == '#') {
-                        continue;
-                }
-
-                if (
-                        sscanf(
-                                LINE,
-                                "%llu\t%7[^\t]\t%u\t%u\t%31[^\t]\t%63[^\t]\t%u",
-                                &TIMESTAMP_NS,
-                                PROTOCOL,
-                                &FAMILY,
-                                &PARSED_PORT,
-                                STATE_TEXT,
-                                EVIDENCE,
-                                &RX_BYTES
-                        ) != 7
-                        || strcmp(PROTOCOL, "TCP") != MATCH
-                        || PARSED_PORT != PORT
-                ) {
-                        continue;
-                }
-
-                FAMILY_INDEX = kportdisplay_family_index(FAMILY);
-                PARSED_STATE = kportdisplay_parse_state(STATE_TEXT);
-                if (
-                        FAMILY_INDEX < 0
-                        || PARSED_STATE == KPORTSCAN_STATE_UNKNOWN
-                        || LATEST[FAMILY_INDEX] > (uint64_t)TIMESTAMP_NS
-                ) {
-                        continue;
-                }
-
-                LATEST[FAMILY_INDEX] = (uint64_t)TIMESTAMP_NS;
-                STATE[FAMILY_INDEX] = PARSED_STATE;
+        if (
+                snprintf(EXPRESSION, sizeof(EXPRESSION), "%u", PORT)
+                        >= (int)sizeof(EXPRESSION)
+                || kportspec_parse(EXPRESSION, &PORTS) != NORMAL
+        ) {
+                return ISFALSE;
         }
 
-        fclose(FILE_HANDLE);
-        return (
-                STATE[0] == KPORTSCAN_STATE_OPEN
-                || STATE[1] == KPORTSCAN_STATE_OPEN
-        ) ? ISTRUE : ISFALSE;
+        return kportdisplay_has_open_tcp_ports(_prog_data, TID, &PORTS);
 }
 
 
