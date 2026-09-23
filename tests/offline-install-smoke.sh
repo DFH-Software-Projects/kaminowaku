@@ -77,8 +77,25 @@ if command -v ldd >/dev/null 2>&1; then
     }
     grep -F 'libnosix.so.1' "$TMP_ROOT/ldd.txt" >/dev/null \
         || fail "Installed executable does not depend on the expected NOSIX SONAME."
-    grep -F "$LIBDIR/" "$TMP_ROOT/ldd.txt" >/dev/null \
-        || { cat "$TMP_ROOT/ldd.txt" >&2; fail "NOSIX did not load from its private installation directory."; }
+    command -v realpath >/dev/null 2>&1 || fail "realpath is required for NOSIX path verification."
+    LOADED_NOSIX=$(awk '$1 == "libnosix.so.1" && $2 == "=>" { print $3; exit }' "$TMP_ROOT/ldd.txt")
+    case "$LOADED_NOSIX" in
+        /*) ;;
+        *) cat "$TMP_ROOT/ldd.txt" >&2
+           fail "Cannot determine an absolute NOSIX loader path from ldd." ;;
+    esac
+    EXPECTED_NOSIX=$(realpath "$LIBDIR/libnosix.so.1.4.0") \
+        || fail "Cannot resolve installed private NOSIX library."
+    ACTUAL_NOSIX=$(realpath "$LOADED_NOSIX") || {
+        cat "$TMP_ROOT/ldd.txt" >&2
+        fail "Cannot resolve NOSIX loader path: $LOADED_NOSIX"
+    }
+    if [ "$EXPECTED_NOSIX" != "$ACTUAL_NOSIX" ]; then
+        printf 'Expected private NOSIX: %s\nActual loaded NOSIX:   %s\n' \
+            "$EXPECTED_NOSIX" "$ACTUAL_NOSIX" >&2
+        cat "$TMP_ROOT/ldd.txt" >&2
+        fail "NOSIX did not load from its private installation directory."
+    fi
     if grep -E 'libssl[.]so|libcrypto[.]so|not found' "$TMP_ROOT/ldd.txt" >/dev/null; then
         cat "$TMP_ROOT/ldd.txt" >&2
         fail "Shared OpenSSL linkage or missing runtime dependency detected."

@@ -533,8 +533,28 @@ case "$TARGET" in
             LINKAGE=$(ldd "$BINDIR/kaminowaku" 2>&1) || fail "Installed executable cannot resolve runtime libraries: $LINKAGE"
             echo "$LINKAGE" | grep "not found" >/dev/null 2>&1 && fail "Missing runtime library: $LINKAGE"
             echo "$LINKAGE" | grep -E "libssl[.]so|libcrypto[.]so" >/dev/null 2>&1 && fail "Linked system OpenSSL instead of packaged static archives."
-            echo "$LINKAGE" | grep "libnosix.so.1" >/dev/null 2>&1 || fail "Private NOSIX runtime not resolved."
-            echo "$LINKAGE" | grep -F "$LIBDIR/" >/dev/null 2>&1 || fail "NOSIX resolved outside Kaminowaku's private runtime directory."
+            echo "$LINKAGE" | grep 'libnosix.so.1' >/dev/null 2>&1 || fail "Private NOSIX runtime not resolved."
+            # $ORIGIN/../lib and the canonical lib directory are equivalent:
+            # compare real paths rather than relying on ldd's textual spelling.
+            command -v realpath >/dev/null 2>&1 || fail "realpath is required for private NOSIX runtime verification."
+            LOADED_NOSIX=$(printf '%s\n' "$LINKAGE" | awk '$1 == "libnosix.so.1" && $2 == "=>" { print $3; exit }')
+            case "$LOADED_NOSIX" in
+                /*) ;;
+                *) printf '%s\n' "$LINKAGE" >&2
+                   fail "Cannot determine an absolute NOSIX loader path from ldd." ;;
+            esac
+            EXPECTED_NOSIX=$(realpath "$LIBDIR/$NOSIX_REAL_NAME") \
+                || fail "Cannot resolve installed private NOSIX library."
+            ACTUAL_NOSIX=$(realpath "$LOADED_NOSIX") || {
+                printf '%s\n' "$LINKAGE" >&2
+                fail "Cannot resolve NOSIX loader path: $LOADED_NOSIX"
+            }
+            if [ "$EXPECTED_NOSIX" != "$ACTUAL_NOSIX" ]; then
+                printf 'Expected private NOSIX: %s\nActual loaded NOSIX:   %s\n' \
+                    "$EXPECTED_NOSIX" "$ACTUAL_NOSIX" >&2
+                printf '%s\n' "$LINKAGE" >&2
+                fail "NOSIX resolved outside Kaminowaku's private runtime directory."
+            fi
         fi
         echo "[assets] install runtime assets"
         install_runtime_assets
