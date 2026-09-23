@@ -71,7 +71,7 @@ The installer requires:
 - the bundled static OpenSSL 3.5.8 archives for the target OS
 - the bundled compatible NOSIX ABI
 
-The installer invokes **no package manager** and performs **no dependency downloads**. `clang` and `make` must already exist on the target for the current source-build installer. Both OpenSSL archives and the NOSIX ABI must be staged before release packaging.
+The installer invokes **no package manager** and performs **no dependency downloads**. A complete offline release also carries platform-specific prebuilt executables under `release/`; when present, installation requires neither `clang` nor `make`. For an explicitly requested source build (or a checkout without prebuilt binaries), the target must already have `clang` and `make`. Both OpenSSL archives and the NOSIX ABI must be staged before packaging a release. See [Offline native release binaries](release/README.md).
 
 The release tree includes the packaged NOSIX ABI under `libs/nosix/`. The installer validates that bundled ABI for the detected platform and architecture, reconstructs the required shared-library links, and installs it with Kaminowaku.
 
@@ -102,6 +102,10 @@ cd kaminowaku
 The preflight check validates the source tree, runtime assets, vendored OpenSSL archives/checksums, and the NOSIX/OpenSSL ABI link path.
 
 ### Install a release build
+
+The default installer first looks for a validated `release/<platform>-amd64/bin/kaminowaku` and its SHA-256 manifest. This path installs without a compiler or package manager. If the native binary is not present, it compiles Kaminowaku from the included source and prebuilt vendored libraries using existing `clang` and `make`.
+
+#### Install a release build
 
 ```sh
 sudo ./install.sh install BUILD=release

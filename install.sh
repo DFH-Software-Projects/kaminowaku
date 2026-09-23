@@ -49,6 +49,10 @@ NOSIX_ABI_ENV=""
 NOSIX_LINKER_NAME=""
 NOSIX_SONAME_NAME=""
 NOSIX_REAL_NAME=""
+RELEASE_DIR=""
+RELEASE_BIN=""
+RELEASE_MANIFEST=""
+RELEASE_READY=0
 
 usage() {
     echo "Kaminowaku Install Script"
@@ -77,6 +81,7 @@ usage() {
     echo "  ./install.sh install BUILD=release"
     echo "  ./install.sh install BUILD=debug"
     echo "  ./install.sh all BUILD=release"
+    echo "  # install without clang/make when release/<platform>-amd64 is packaged"
 }
 
 fail() {
@@ -116,7 +121,9 @@ for arg in "$@"; do
     esac
 done
 
-command -v make >/dev/null 2>&1 || fail "make not found."
+if [ "$TARGET" = all ] || [ "$TARGET" = clean ]; then
+    command -v make >/dev/null 2>&1 || fail "make is required for source builds and cleaning."
+fi
 
 UNAME_S=$(uname -s)
 UNAME_M=$(uname -m)
@@ -141,6 +148,8 @@ check_openssl_dependency() {
         elif command -v sha256 >/dev/null 2>&1; then sha256 -q "$1"
         else fail "SHA-256 utility unavailable."; fi
     }
+    [ -s "$PACKAGED_OPENSSL_ROOT/source/openssl-3.5.8.tar.gz" ] || fail "Vendored OpenSSL source archive is missing."
+    [ "$(hash_file "$PACKAGED_OPENSSL_ROOT/source/openssl-3.5.8.tar.gz")" = "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2" ] || fail "Vendored OpenSSL source archive SHA-256 mismatch."
     for lib in libssl libcrypto; do
         key=$(printf '%s' "$lib" | tr '[:lower:]' '[:upper:]')
         expected=$(sed -n "s/^${key}_SHA256=//p" "$OPENSSL_MANIFEST")
@@ -153,15 +162,13 @@ check_openssl_dependency() {
     echo "[deps] Packaged OpenSSL 3.5.8 ready for $PLATFORM_TAG/$ARCH_TAG"
 }
 
-# Clean does not require the runtime toolchain to be installed.
-if [ "$TARGET" != "clean" ]; then
-    command -v clang >/dev/null 2>&1 || fail "clang not found. Install clang before continuing."
-
+# A prebuilt native release can be installed without clang or make.
+need_toolchain() {
+    command -v make >/dev/null 2>&1 || fail "make not found. Supply a prebuilt native release binary or prepare a build toolchain."
+    command -v clang >/dev/null 2>&1 || fail "clang not found. Supply a prebuilt native release binary or prepare a build toolchain."
     CC_VERSION=$(clang --version 2>/dev/null || true)
-    echo "$CC_VERSION" | grep -qi "clang" || fail "'clang' is not a valid clang compiler."
-
-
-fi
+    echo "$CC_VERSION" | grep -qi clang || fail "clang executable is invalid."
+}
 
 [ -f ./Makefile ] || fail "Makefile not found in $(pwd)."
 
@@ -195,6 +202,10 @@ case "$UNAME_M" in
         CPPFLAGS="$CPPFLAGS -DKMN_ARCH_UNKNOWN"
         ;;
 esac
+
+RELEASE_DIR="./release/$PLATFORM_TAG-$ARCH_TAG"
+RELEASE_BIN="$RELEASE_DIR/bin/kaminowaku"
+RELEASE_MANIFEST="$RELEASE_DIR/BUILD-MANIFEST.txt"
 
 case "$TARGET" in
     check|install|all)
@@ -288,6 +299,7 @@ case "$BUILD" in
 esac
 
 run_make() {
+    need_toolchain
     make \
         CC=clang \
         BUILD="$BUILD" \
@@ -382,13 +394,27 @@ EOF
         -lnosix \
         $OPENSSL_LIBS -pthread \
         -o "$ABI_BINARY" \
-        || fail "NOSIX/OpenSSL ABI link check failed. Verify the shipped ABI and OpenSSL development packages."
+        || fail "NOSIX/OpenSSL ABI link check failed. Verify the shipped ABI and packaged OpenSSL static archives."
 
     LD_LIBRARY_PATH="$NOSIX_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$ABI_BINARY" \
         || fail "NOSIX runtime ABI smoke failed to execute. Verify the shipped ABI and loader path."
 
     rm -f "$ABI_SOURCE" "$ABI_BINARY"
     trap - EXIT HUP INT TERM
+}
+
+check_release_binary() {
+    RELEASE_READY=0
+    if [ "$BUILD" != release ] || [ ! -s "$RELEASE_BIN" ]; then return 0; fi
+    [ -s "$RELEASE_MANIFEST" ] || fail "Prebuilt release manifest missing: $RELEASE_MANIFEST"
+    grep -Fx "PLATFORM=$PLATFORM_TAG" "$RELEASE_MANIFEST" >/dev/null || fail "Prebuilt binary platform mismatch."
+    grep -Fx "ARCH=$ARCH_TAG" "$RELEASE_MANIFEST" >/dev/null || fail "Prebuilt binary architecture mismatch."
+    grep -Fx 'BUILD=release' "$RELEASE_MANIFEST" >/dev/null || fail "Prebuilt binary is not a release build."
+    expected=$(sed -n 's/^BINARY_SHA256=//p' "$RELEASE_MANIFEST")
+    [ -n "$expected" ] || fail "Prebuilt release manifest has no executable checksum."
+    [ "$(hash_file "$RELEASE_BIN")" = "$expected" ] || fail "Prebuilt release binary checksum mismatch."
+    RELEASE_READY=1
+    echo "[check] Validated prebuilt executable: $RELEASE_BIN"
 }
 
 preflight() {
@@ -403,7 +429,14 @@ preflight() {
     else
         echo "[check] packaged NOSIX / vendored OpenSSL ABI"
     fi
-    check_nosix_abi
+    check_release_binary
+    if command -v clang >/dev/null 2>&1; then
+        check_nosix_abi
+    elif [ "$RELEASE_READY" -eq 1 ]; then
+        echo "[check] No compiler required: validated native release binary is included."
+    else
+        fail "No clang available and no validated prebuilt release binary is included."
+    fi
     echo "[check] PASS (offline)"
 }
 
@@ -476,16 +509,27 @@ case "$TARGET" in
     install)
         [ "$(id -u)" -eq 0 ] || fail "The install target requires root privileges. Run with sudo."
         preflight
-        echo "[make] clean"
-        run_make clean
-        echo "[make] build through .STAGE ($BUILD)"
-        run_make all
+        if [ "$RELEASE_READY" -eq 1 ]; then
+            BINARY="$RELEASE_BIN"
+            echo "[install] Using verified prebuilt native release (no toolchain needed)."
+        else
+            echo "[make] clean and build from packaged source and static libraries"
+            run_make clean
+            run_make all
+            BINARY="$STAGE_ROOT/bin/kaminowaku"
+        fi
         echo "[nosix] install private packaged ABI"
         install_packaged_nosix_abi
-        echo "[make] install"
+        echo "[install] executable"
         install -d -m 755 "$BINDIR"
-        install -m 0755 "$STAGE_ROOT/bin/kaminowaku" "$BINDIR/kaminowaku"
+        install -m 0755 "$BINARY" "$BINDIR/kaminowaku"
         echo "Installed to $BINDIR/kaminowaku"
+        if command -v ldd >/dev/null 2>&1; then
+            LINKAGE=$(ldd "$BINDIR/kaminowaku" 2>&1) || fail "Installed executable cannot resolve runtime libraries: $LINKAGE"
+            echo "$LINKAGE" | grep "not found" >/dev/null 2>&1 && fail "Missing runtime library: $LINKAGE"
+            echo "$LINKAGE" | grep -E "libssl[.]so|libcrypto[.]so" >/dev/null 2>&1 && fail "Linked system OpenSSL instead of packaged static archives."
+            echo "$LINKAGE" | grep "libnosix.so.1" >/dev/null 2>&1 || fail "Private NOSIX runtime not resolved."
+        fi
         echo "[assets] install runtime assets"
         install_runtime_assets
         echo "Installed binary: ${BINDIR}/kaminowaku"
@@ -505,7 +549,7 @@ case "$TARGET" in
         ;;
 
     clean)
-        run_make clean
+        make clean
         echo "DONE."
         ;;
 
@@ -521,6 +565,7 @@ case "$TARGET" in
         echo "BINDIR=$BINDIR"
         echo "INCLUDEDIR=$INCLUDEDIR"
         echo "LIBDIR=$LIBDIR"
+        echo "RELEASE_BIN=$RELEASE_BIN"
         echo "PLATFORM_TAG=$PLATFORM_TAG"
         echo "ARCH_TAG=$ARCH_TAG"
         echo "PACKAGED_NOSIX=$PACKAGED_NOSIX"
