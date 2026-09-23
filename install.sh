@@ -317,6 +317,10 @@ run_make() {
         PREFIX="$PREFIX" \
         NOSIX_INCLUDEDIR="$NOSIX_INCLUDEDIR" \
         NOSIX_LIBDIR="$NOSIX_LIBDIR" \
+        OPENSSL_INCLUDEDIR="$OPENSSL_INCLUDEDIR" \
+        OPENSSL_LIBDIR="$OPENSSL_LIBDIR" \
+        OPENSSL_EXTRA_LIBS="$OPENSSL_EXTRA_LIBS" \
+        PRIVATE_LIBDIR="$PRIVATE_LIBDIR" \
         "$@"
 }
 
@@ -327,6 +331,7 @@ check_source_assets() {
     [ -f "$SOURCE_ROOT/data.h" ] || fail "Missing core header: $SOURCE_ROOT/data.h"
     [ -f "$DEFAULT_PROFILE_SRC" ] || fail "Missing restore profile: $DEFAULT_PROFILE_SRC"
     [ -f "./LICENSE.txt" ] || fail "Missing Kaminowaku license: ./LICENSE.txt"
+    [ -f "$OPENSSL_ROOT/SHA256" ] || fail "Missing pinned OpenSSL checksum."
 
     if [ "$PACKAGED_NOSIX" -eq 1 ]; then
         [ -f "$PACKAGED_NOSIX_LICENSE" ] || fail "Missing packaged NOSIX license: $PACKAGED_NOSIX_LICENSE"
@@ -389,20 +394,19 @@ int main(void) {
 }
 EOF
 
-    OPENSSL_CFLAGS=$(pkg-config --cflags "$OPENSSL_PKG")
-    OPENSSL_LIBS=$(pkg-config --libs "$OPENSSL_PKG")
-
-    # Intentional word splitting: pkg-config returns compiler/linker argument lists.
+    # Link the packaged static OpenSSL libraries explicitly.
+    # OPENSSL_EXTRA_LIBS is either empty or the Linux-only -ldl flag.
     # shellcheck disable=SC2086
     clang \
         -I"$NOSIX_INCLUDEDIR" \
-        $OPENSSL_CFLAGS \
+        -I"$OPENSSL_INCLUDEDIR" \
         "$ABI_SOURCE" \
         -L"$NOSIX_LIBDIR" \
         -lnosix \
-        $OPENSSL_LIBS \
+        "$OPENSSL_LIBDIR/libssl.a" "$OPENSSL_LIBDIR/libcrypto.a" \
+        $OPENSSL_EXTRA_LIBS -pthread \
         -o "$ABI_BINARY" \
-        || fail "NOSIX/OpenSSL ABI link check failed. Verify the shipped ABI and OpenSSL development packages."
+        || fail "Packaged NOSIX/OpenSSL link check failed."
 
     LD_LIBRARY_PATH="$NOSIX_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$ABI_BINARY" \
         || fail "NOSIX runtime ABI smoke failed to execute. Verify the shipped ABI and loader path."
@@ -416,11 +420,12 @@ preflight() {
     # a separate test harness: active Kaminowaku links NOSIX + OpenSSL only.
     echo "[check] source/runtime assets"
     check_source_assets
+    check_packaged_openssl
     if [ "$PACKAGED_NOSIX" -eq 1 ]; then
         prepare_packaged_nosix_abi
-        echo "[check] packaged NOSIX/OpenSSL ABI"
+        echo "[check] packaged NOSIX/private OpenSSL ABI"
     else
-        echo "[check] installed NOSIX/OpenSSL ABI"
+        fail "Release missing packaged NOSIX."
     fi
     check_nosix_abi
     echo "[check] PASS"
@@ -428,24 +433,15 @@ preflight() {
 
 install_packaged_nosix_abi() {
     [ "$PACKAGED_NOSIX" -eq 1 ] || return 0
-    [ "$(id -u)" -eq 0 ] || fail "Packaged NOSIX ABI installation requires root privileges."
+    [ "$(id -u)" -eq 0 ] || fail "NOSIX installation requires root privileges."
 
     prepare_packaged_nosix_abi
+    install -d -m 755 "$PRIVATE_LIBDIR"
+    install -m 0755 "$NOSIX_LIBDIR/$NOSIX_REAL_NAME" "$PRIVATE_LIBDIR/$NOSIX_REAL_NAME"
+    ln -sfn "$NOSIX_REAL_NAME" "$PRIVATE_LIBDIR/$NOSIX_SONAME_NAME"
+    ln -sfn "$NOSIX_SONAME_NAME" "$PRIVATE_LIBDIR/$NOSIX_LINKER_NAME"
 
-    install -d -m 755 "$INCLUDEDIR"
-    install -d -m 755 "$LIBDIR"
-
-    for header in nosix.h nosix_poll.h nosix_datagram.h; do
-        install -m 0644 "$NOSIX_INCLUDEDIR/$header" "$INCLUDEDIR/$header"
-    done
-
-    install -m 0755 "$NOSIX_LIBDIR/$NOSIX_REAL_NAME" "$LIBDIR/$NOSIX_REAL_NAME"
-    ln -sfn "$NOSIX_REAL_NAME" "$LIBDIR/$NOSIX_SONAME_NAME"
-    ln -sfn "$NOSIX_SONAME_NAME" "$LIBDIR/$NOSIX_LINKER_NAME"
-
-    refresh_loader_cache
-
-    echo "Installed packaged NOSIX ABI: $LIBDIR/$NOSIX_REAL_NAME"
+    echo "Installed private NOSIX ABI: $PRIVATE_LIBDIR/$NOSIX_REAL_NAME"
 }
 
 install_runtime_assets() {
@@ -467,6 +463,8 @@ install_runtime_assets() {
 
     install -m 644 "$DEFAULT_PROFILE_SRC" "$DEFAULT_PROFILE_DST"
     install -m 644 "./LICENSE.txt" "$SHARE_LICENSES_DIR/KAMINOWAKU-LICENSE.txt"
+    install -m 644 "$OPENSSL_LICENSE" "$SHARE_LICENSES_DIR/OPENSSL-LICENSE.txt"
+    install -m 644 "$OPENSSL_ROOT/SHA256" "$SHARE_LICENSES_DIR/OPENSSL-SHA256.txt"
 
     if [ "$PACKAGED_NOSIX" -eq 1 ]; then
         install -m 644 "$PACKAGED_NOSIX_LICENSE" "$SHARE_LICENSES_DIR/NOSIX-LICENSE.txt"
@@ -493,9 +491,9 @@ case "$TARGET" in
 
     install)
         [ "$(id -u)" -eq 0 ] || fail "The install target requires root privileges. Run with sudo."
-        preflight
         echo "[make] clean"
         run_make clean
+        preflight
         echo "[nosix] install packaged ABI when present"
         install_packaged_nosix_abi
         echo "[make] build through .STAGE ($BUILD)"
@@ -514,9 +512,9 @@ case "$TARGET" in
         ;;
 
     all)
-        preflight
         echo "[make] clean"
         run_make clean
+        preflight
         echo "[make] build through .STAGE ($BUILD)"
         run_make all
         echo "DONE."
@@ -544,6 +542,7 @@ case "$TARGET" in
         echo "PACKAGED_NOSIX=$PACKAGED_NOSIX"
         echo "NOSIX_INCLUDEDIR=$NOSIX_INCLUDEDIR"
         echo "NOSIX_LIBDIR=$NOSIX_LIBDIR"
+        echo "NOSIX_SOURCE_LIBDIR=$NOSIX_SOURCE_LIBDIR"
         echo "SHARE_DIR=$SHARE_DIR"
         echo "SHARE_PROFILES_DIR=$SHARE_PROFILES_DIR"
         echo "SHARE_TOOLS_DIR=$SHARE_TOOLS_DIR"
@@ -567,7 +566,9 @@ case "$TARGET" in
         echo "MAIN_RESULT=$MAIN_RESULT"
         echo "MODULE_SSH=$MODULE_SSH"
         echo "MODULE_HTTP=$MODULE_HTTP"
-        echo "OPENSSL_PKG=$OPENSSL_PKG"
+        echo "OPENSSL_INCLUDEDIR=$OPENSSL_INCLUDEDIR"
+        echo "OPENSSL_LIBDIR=$OPENSSL_LIBDIR"
+        echo "PRIVATE_LIBDIR=$PRIVATE_LIBDIR"
         echo "NOSIX_ABI_ENV=$NOSIX_ABI_ENV"
         echo "NOSIX_LINKER_NAME=$NOSIX_LINKER_NAME"
         echo "NOSIX_SONAME_NAME=$NOSIX_SONAME_NAME"
