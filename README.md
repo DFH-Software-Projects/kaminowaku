@@ -64,15 +64,11 @@ Additional architectures may be supported in future releases.
 
 ### Requirements
 
-The installer requires:
+The installer offers **two explicit OpenSSL modes**. `--offline` is the default and uses the pinned, statically linked OpenSSL 3.5.8 native release. It requires no compiler, package manager or network access when the packaged binary is included. `--online` builds Kaminowaku against the operating system's **OpenSSL 3 shared libraries** and permits dependency installation through `apt` on Kali/Debian or `pkg` on FreeBSD *only if dependencies are missing*. Online installation requires Clang, Make, OpenSSL development headers and pkg-config/pkgconf; the installer can acquire them with your explicit `--online` choice.
 
-- `clang`
-- `make`
-- `pkg-config` or `pkgconf`
-- OpenSSL development files
-- a compatible NOSIX ABI
+The online mode does **not** require the bundled OpenSSL source archive, static libraries or manifests. Security updates for a dynamically linked OpenSSL can come through your operating system; an incompatible OpenSSL ABI upgrade may still require rebuilding Kaminowaku. The pinned offline build remains a snapshot and must be separately refreshed to include future OpenSSL security fixes.
 
-The release tree includes the packaged NOSIX ABI under `nosix_abi/`. The installer validates that bundled ABI for the detected platform and architecture, reconstructs the required shared-library links, and installs it with Kaminowaku.
+Both modes use the same licensed, bundled NOSIX ABI under `libs/nosix/`, installed into Kaminowaku's **private** library directory. Neither mode overwrites a system OpenSSL installation. See [Release packaging](release/README.md) and [Bundled OpenSSL](libs/openssl/README.md).
 
 Required NOSIX components:
 
@@ -93,16 +89,35 @@ cd kaminowaku
 ### Preflight check
 
 ```sh
-./install.sh check
+./install.sh check --offline
+./install.sh check --online
 ```
 
-The preflight check validates the source tree, runtime assets, OpenSSL development metadata, and the NOSIX/OpenSSL ABI link path.
+Both checks are non-installing: they may reconstruct linker symlinks within the shipped NOSIX ABI but never modify system packages. Offline mode validates the bundled libraries and native executable; online mode checks for an existing OpenSSL 3 development installation, Clang, Make and pkg-config/pkgconf. Unlike `install --online`, `check --online` never downloads packages.
 
-### Install a release build
+### Offline installation (default)
 
 ```sh
-sudo ./install.sh install BUILD=release
+sudo ./install.sh install --offline
 ```
+
+A matching `release/<platform>-amd64/bin/kaminowaku` and SHA-256 manifest allow compiler-free installation. If the binary is absent, offline mode can also build from the packaged source and static libraries using an already installed Clang and Make. **Offline mode never pulls packages.**
+
+### Online installation (system OpenSSL)
+
+```sh
+sudo ./install.sh install --online
+```
+
+Online mode always compiles Kaminowaku against system-managed OpenSSL 3 shared libraries rather than reusing the statically linked offline binary. When dependencies are missing, this explicit install mode may run `apt-get` or FreeBSD `pkg`; when they're already present, it makes no package-manager calls. On a restricted host, use `--offline` instead.
+
+For an online build without installing:
+
+```sh
+./install.sh all BUILD=release --online
+```
+
+Build-only commands do not install packages; prepare any missing dependencies in advance.
 
 Installed binary:
 
@@ -132,29 +147,26 @@ System default profile:
 The installer defaults to a release build when `BUILD` is omitted. Use `BUILD=debug` explicitly when you want the sanitizer-enabled development build.
 
 ```sh
-sudo ./install.sh install BUILD=debug
+sudo ./install.sh install BUILD=debug --offline
 ```
 
-For normal use, prefer `BUILD=release`.
+For normal use, prefer `BUILD=release`. For a sanitizer-enabled system-OpenSSL build, specify `--online` instead of `--offline`.
 
 ## Uninstalling Kaminowaku
 
-The supplied uninstall script is **destructive**:
+By default, the uninstaller removes the executable, shared runtime assets, and private NOSIX library **without deleting user evidence or configuration**:
 
 ```sh
 sudo ./uninstall.sh
 ```
 
-It removes:
+The default preserves `/root/.kaminowaku` and matching datastores under `/home/*/` and `/usr/home/*/`. To additionally erase **all users'** projects, target data, PCAP evidence, Book outputs, profiles, logs and tool registrations, explicitly request:
 
-- `/usr/local/bin/kaminowaku`;
-- `/usr/local/share/kaminowaku/`;
-- the installed NOSIX public headers under `/usr/local/include/`;
-- `libnosix.so` and its versioned links/libraries under `/usr/local/lib/`;
-- `/root/.kaminowaku`;
-- matching `.kaminowaku` datastores under `/home/*/` and `/usr/home/*/`.
+```sh
+sudo ./uninstall.sh --purge-user-data
+```
 
-That includes stored projects, target data, PCAP evidence, Book output, profiles, logs, and tool registrations. Back up any evidence or configuration you need before running the script.
+Back up evidence before using the purge option. Neither mode removes system OpenSSL or an independently installed NOSIX library.
 
 ## Starting Kaminowaku
 
@@ -853,7 +865,7 @@ Installer syntax:
 | Target | Behavior |
 | --- | --- |
 | `check` | Validate compiler, dependencies, NOSIX ABI, and runtime assets |
-| `install` | Clean, build, install the binary, and install runtime assets |
+| `install` | Install the verified offline executable or build using the selected OpenSSL mode; install private NOSIX and runtime assets |
 | `all` | Clean and build without installing |
 | `clean` | Remove build artifacts |
 | `info` | Print build and installation configuration |
@@ -861,9 +873,12 @@ Installer syntax:
 Examples:
 
 ```sh
-./install.sh check
-sudo ./install.sh install BUILD=release
-./install.sh all BUILD=release
+./install.sh check --offline
+./install.sh check --online
+sudo ./install.sh install BUILD=release --offline
+sudo ./install.sh install BUILD=release --online
+./install.sh all BUILD=release --offline
+./install.sh all BUILD=release --online
 ./install.sh clean
 ./install.sh info
 ```

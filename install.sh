@@ -5,11 +5,16 @@ set -eu
 
 TARGET="install"
 BUILD="release"
+# Offline remains the safe default; package operations require --online.
+OPENSSL_MODE="offline"
+OPENSSL_MODE_SET=0
+PKG_CONFIG_TOOL="pkg-config"
+SYSTEM_OPENSSL_VERSION=""
 
 PREFIX="${PREFIX:-/usr/local}"
 BINDIR="${PREFIX}/bin"
 INCLUDEDIR="${PREFIX}/include"
-LIBDIR="${PREFIX}/lib"
+LIBDIR="${PREFIX}/lib/kaminowaku"
 SHARE_DIR="${PREFIX}/share/kaminowaku"
 SHARE_PROFILES_DIR="${SHARE_DIR}/profiles"
 SHARE_TOOLS_DIR="${SHARE_DIR}/tools"
@@ -33,8 +38,11 @@ MAIN_TLS="./books/main/tls.lua"
 MAIN_RESULT="./books/main/result.lua"
 MODULE_SSH="./books/modules/ssh.lua"
 MODULE_HTTP="./books/modules/http.lua"
-OPENSSL_PKG=""
-PACKAGED_NOSIX_ROOT="./nosix_abi"
+PACKAGED_OPENSSL_ROOT="./libs/openssl"
+OPENSSL_INCLUDEDIR=""
+OPENSSL_LIBDIR=""
+OPENSSL_MANIFEST=""
+PACKAGED_NOSIX_ROOT="./libs/nosix"
 PACKAGED_NOSIX_LICENSE="${PACKAGED_NOSIX_ROOT}/LICENSE"
 PACKAGED_NOSIX_MANIFEST="${PACKAGED_NOSIX_ROOT}/BUILD-MANIFEST.txt"
 PACKAGED_NOSIX=0
@@ -46,16 +54,26 @@ NOSIX_ABI_ENV=""
 NOSIX_LINKER_NAME=""
 NOSIX_SONAME_NAME=""
 NOSIX_REAL_NAME=""
+RELEASE_DIR=""
+RELEASE_BIN=""
+RELEASE_MANIFEST=""
+RELEASE_READY=0
 
 usage() {
     echo "Kaminowaku Install Script"
     echo ""
     echo "Usage:"
-    echo "  ./install.sh [target] [BUILD=debug|release]"
+    echo "  ./install.sh [target] [BUILD=debug|release] [--offline|--online]"
+    echo ""
+    echo "OpenSSL mode:"
+    echo "  --offline  Use the bundled OpenSSL 3.5.8 static libraries and native binary (default)"
+    echo "  --online   Link against system-managed OpenSSL 3; if needed, the install"
+    echo "             target may install build dependencies via apt or pkg"
+    echo "             (always compiles Kaminowaku; requires clang and make)"
     echo ""
     echo "Targets:"
-    echo "  check     Validate compiler, dependencies, shipped NOSIX ABI, and runtime assets"
-    echo "  install   Clean, build, install binary, NOSIX ABI, licenses, and runtime assets (default)"
+    echo "  check     Read-only dependency and release-payload validation"
+    echo "  install   Install prebuilt offline binary, or build for selected mode (default)"
     echo "  all       Clean and build only"
     echo "  clean     Remove build artifacts"
     echo "  info      Show build/install configuration"
@@ -73,7 +91,10 @@ usage() {
     echo "  ./install.sh"
     echo "  ./install.sh install BUILD=release"
     echo "  ./install.sh install BUILD=debug"
-    echo "  ./install.sh all BUILD=release"
+    echo "  ./install.sh all BUILD=release --offline"
+    echo "  sudo ./install.sh install --online"
+    echo "  # --online uses apt/pkg ONLY when prerequisites are missing"
+    echo "  # --offline installs without a compiler when a native binary is included"
 }
 
 fail() {
@@ -91,7 +112,7 @@ if [ "$#" -gt 0 ]; then
             TARGET="$1"
             shift
             ;;
-        BUILD=debug|BUILD=release)
+        BUILD=debug|BUILD=release|--online|--offline)
             ;;
         *)
             fail "Unsupported target or argument '$1'. Use --help for usage."
@@ -107,87 +128,139 @@ for arg in "$@"; do
         BUILD=release)
             BUILD="release"
             ;;
+        --offline|--online)
+            requested_mode=${arg#--}
+            if [ "$OPENSSL_MODE_SET" -eq 1 ] && [ "$OPENSSL_MODE" != "$requested_mode" ]; then
+                fail "Conflicting OpenSSL modes: specify only one of --offline or --online."
+            fi
+            OPENSSL_MODE="$requested_mode"
+            OPENSSL_MODE_SET=1
+            ;;
         *)
-            fail "Unsupported argument '$arg'. Use BUILD=debug or BUILD=release."
+            fail "Unsupported argument '$arg'. Use --online, --offline, BUILD=debug or BUILD=release."
             ;;
     esac
 done
 
-command -v make >/dev/null 2>&1 || fail "make not found."
+if [ "$TARGET" = all ] || [ "$TARGET" = clean ]; then
+    command -v make >/dev/null 2>&1 || fail "make is required for source builds and cleaning."
+fi
 
 UNAME_S=$(uname -s)
 UNAME_M=$(uname -m)
 
-openssl_ready() {
-    command -v pkg-config >/dev/null 2>&1 \
-        && pkg-config --exists openssl 2>/dev/null
+# The online mode deliberately delegates OpenSSL patching to the operating
+# system package manager. Offline mode NEVER invokes these functions.
+find_system_pkg_config() {
+    PKG_CONFIG_TOOL=""
+    for candidate in pkg-config pkgconf; do
+        if command -v "$candidate" >/dev/null 2>&1 \
+            && "$candidate" --atleast-version=3.0.0 openssl >/dev/null 2>&1; then
+            PKG_CONFIG_TOOL="$candidate"
+            return 0
+        fi
+    done
+    return 1
 }
 
-install_openssl_dependency() {
-    if openssl_ready; then
-        OPENSSL_PKG="openssl"
-        return 0
-    fi
+online_prerequisites_ready() {
+    command -v clang >/dev/null 2>&1 || return 1
+    command -v make >/dev/null 2>&1 || return 1
+    find_system_pkg_config || return 1
+}
 
-    [ "$(id -u)" -eq 0 ] || fail "The install target requires root privileges before OpenSSL can be installed."
-
-    echo "[deps] OpenSSL development dependency is missing; installing it."
-
+install_online_dependencies() {
+    [ "$TARGET" = install ] \
+        || fail "System OpenSSL 3 development headers, pkg-config, Clang and Make are required for --online. Package installation is only permitted for the install target."
+    [ "$(id -u)" -eq 0 ] \
+        || fail "Run the online install target as root to allow explicit package installation."
     case "$UNAME_S" in
         Linux)
             command -v apt-get >/dev/null 2>&1 \
-                || fail "OpenSSL is missing and apt-get is not available on this Linux target."
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get update \
-                || fail "apt-get update failed while preparing OpenSSL."
-            apt-get install -y libssl-dev pkg-config \
-                || fail "Failed to install libssl-dev/pkg-config."
+                || fail "Automatic online dependency installation currently supports apt-based Linux only. Install OpenSSL 3 headers, Clang, Make and pkg-config manually."
+            echo "[online] Missing build prerequisites; installing clang, make, pkg-config and libssl-dev via apt."
+            DEBIAN_FRONTEND=noninteractive apt-get update \
+                || fail "apt-get update failed; use --offline on restricted hosts."
+            DEBIAN_FRONTEND=noninteractive apt-get install -y clang make pkg-config libssl-dev \
+                || fail "Online OpenSSL/Clang prerequisite installation failed."
             ;;
         FreeBSD)
             command -v pkg >/dev/null 2>&1 \
-                || fail "OpenSSL is missing and pkg is not available on this FreeBSD target."
+                || fail "FreeBSD pkg unavailable. Use --offline or prepare the system dependencies manually."
+            echo "[online] Missing build prerequisites; installing openssl and pkgconf via pkg."
             if ! pkg -N >/dev/null 2>&1; then
                 ASSUME_ALWAYS_YES=yes pkg bootstrap -f \
-                    || fail "Failed to bootstrap FreeBSD pkg."
+                    || fail "FreeBSD pkg bootstrap failed; use --offline."
             fi
             ASSUME_ALWAYS_YES=yes pkg install -y openssl pkgconf \
-                || fail "Failed to install openssl/pkgconf."
+                || fail "FreeBSD OpenSSL/pkgconf installation failed."
             ;;
         *)
-            fail "Automatic OpenSSL installation is unsupported on $UNAME_S."
+            fail "Online OpenSSL installation supports only apt-based Linux and FreeBSD."
             ;;
     esac
-
-    command -v pkg-config >/dev/null 2>&1 \
-        || fail "OpenSSL installation completed but pkg-config/pkgconf is unavailable."
-    pkg-config --exists openssl 2>/dev/null \
-        || fail "OpenSSL installation completed but pkg-config metadata is still unavailable."
-
-    OPENSSL_PKG="openssl"
-    echo "[deps] OpenSSL ready: $(pkg-config --modversion openssl 2>/dev/null || echo installed)"
 }
 
-check_openssl_dependency() {
-    command -v pkg-config >/dev/null 2>&1 \
-        || fail "pkg-config/pkgconf not found. Run the install target to acquire OpenSSL dependencies."
-    pkg-config --exists openssl 2>/dev/null \
-        || fail "OpenSSL development metadata not found. Run the install target to acquire it."
-    OPENSSL_PKG="openssl"
-}
-
-# Clean does not require the runtime toolchain to be installed.
-if [ "$TARGET" != "clean" ]; then
-    command -v clang >/dev/null 2>&1 || fail "clang not found. Install clang before continuing."
-
-    CC_VERSION=$(clang --version 2>/dev/null || true)
-    echo "$CC_VERSION" | grep -qi "clang" || fail "'clang' is not a valid clang compiler."
-
-    if [ "$TARGET" = "install" ]; then
-        install_openssl_dependency
-    else
-        check_openssl_dependency
+check_system_openssl_dependency() {
+    if ! online_prerequisites_ready; then
+        if [ "$TARGET" = install ]; then
+            install_online_dependencies
+        else
+            fail "Online source-build requirements missing. Run sudo ./install.sh install --online to authorize apt/pkg, or use --offline."
+        fi
     fi
-fi
+    online_prerequisites_ready \
+        || fail "OpenSSL >=3.0 development files, pkg-config, Clang or Make are still unavailable after dependency setup."
+    SYSTEM_OPENSSL_VERSION=$("$PKG_CONFIG_TOOL" --modversion openssl)
+    OPENSSL_CFLAGS=$("$PKG_CONFIG_TOOL" --cflags openssl) \
+        || fail "Failed to discover system OpenSSL headers."
+    OPENSSL_LIBS=$("$PKG_CONFIG_TOOL" --libs openssl) \
+        || fail "Failed to discover system OpenSSL shared libraries."
+    [ -n "$OPENSSL_LIBS" ] || fail "System OpenSSL linker flags are empty."
+    echo "[online] Using OS-managed OpenSSL $SYSTEM_OPENSSL_VERSION (dynamic linkage via $PKG_CONFIG_TOOL)."
+}
+
+# Vendored OpenSSL: no package manager, network access or system OpenSSL.
+check_openssl_dependency() {
+    OPENSSL_INCLUDEDIR="$PACKAGED_OPENSSL_ROOT/$PLATFORM_TAG/include"
+    OPENSSL_LIBDIR="$PACKAGED_OPENSSL_ROOT/$PLATFORM_TAG/lib"
+    OPENSSL_MANIFEST="$PACKAGED_OPENSSL_ROOT/$PLATFORM_TAG/BUILD-MANIFEST.txt"
+    [ -s "$OPENSSL_INCLUDEDIR/openssl/ssl.h" ] || fail "Missing packaged OpenSSL headers for $PLATFORM_TAG."
+    [ -s "$OPENSSL_INCLUDEDIR/openssl/configuration.h" ] || fail "Missing generated OpenSSL configuration.h for $PLATFORM_TAG."
+    [ -s "$OPENSSL_LIBDIR/libssl.a" ] || fail "Missing packaged libssl.a; run libs/openssl/build-native.sh on $PLATFORM_TAG."
+    [ -s "$OPENSSL_LIBDIR/libcrypto.a" ] || fail "Missing packaged libcrypto.a; run libs/openssl/build-native.sh on $PLATFORM_TAG."
+    [ -s "$PACKAGED_OPENSSL_ROOT/LICENSE.txt" ] || fail "Packaged OpenSSL license missing."
+    [ -s "$OPENSSL_MANIFEST" ] || fail "Packaged OpenSSL build manifest missing."
+    grep -Fx 'VERSION=3.5.8' "$OPENSSL_MANIFEST" >/dev/null || fail "OpenSSL version mismatch."
+    grep -Fx "PLATFORM=$PLATFORM_TAG" "$OPENSSL_MANIFEST" >/dev/null || fail "OpenSSL platform mismatch."
+    grep -Fx "ARCH=$ARCH_TAG" "$OPENSSL_MANIFEST" >/dev/null || fail "OpenSSL architecture mismatch."
+    grep -Fx 'SOURCE_SHA256=a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2' "$OPENSSL_MANIFEST" >/dev/null || fail "OpenSSL source provenance mismatch."
+    hash_file() {
+        if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d ' ' -f 1
+        elif command -v sha256 >/dev/null 2>&1; then sha256 -q "$1"
+        else fail "SHA-256 utility unavailable."; fi
+    }
+    [ -s "$PACKAGED_OPENSSL_ROOT/source/openssl-3.5.8.tar.gz" ] || fail "Vendored OpenSSL source archive is missing."
+    [ "$(hash_file "$PACKAGED_OPENSSL_ROOT/source/openssl-3.5.8.tar.gz")" = "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2" ] || fail "Vendored OpenSSL source archive SHA-256 mismatch."
+    for lib in libssl libcrypto; do
+        key=$(printf '%s' "$lib" | tr '[:lower:]' '[:upper:]')
+        expected=$(sed -n "s/^${key}_SHA256=//p" "$OPENSSL_MANIFEST")
+        [ -n "$expected" ] || fail "OpenSSL manifest missing $lib SHA-256."
+        [ "$(hash_file "$OPENSSL_LIBDIR/$lib.a")" = "$expected" ] || fail "$lib checksum mismatch."
+    done
+    OPENSSL_CFLAGS="-I$OPENSSL_INCLUDEDIR"
+    OPENSSL_LIBS="$OPENSSL_LIBDIR/libssl.a $OPENSSL_LIBDIR/libcrypto.a"
+    if [ "$UNAME_S" = Linux ]; then OPENSSL_LIBS="$OPENSSL_LIBS -ldl"; fi
+    echo "[deps] Packaged OpenSSL 3.5.8 ready for $PLATFORM_TAG/$ARCH_TAG"
+}
+
+# A prebuilt native release can be installed without clang or make.
+need_toolchain() {
+    command -v make >/dev/null 2>&1 || fail "make not found. Supply a prebuilt native release binary or prepare a build toolchain."
+    command -v clang >/dev/null 2>&1 || fail "clang not found. Supply a prebuilt native release binary or prepare a build toolchain."
+    CC_VERSION=$(clang --version 2>/dev/null || true)
+    echo "$CC_VERSION" | grep -qi clang || fail "clang executable is invalid."
+}
 
 [ -f ./Makefile ] || fail "Makefile not found in $(pwd)."
 
@@ -221,6 +294,10 @@ case "$UNAME_M" in
         CPPFLAGS="$CPPFLAGS -DKMN_ARCH_UNKNOWN"
         ;;
 esac
+
+RELEASE_DIR="./release/$PLATFORM_TAG-$ARCH_TAG"
+RELEASE_BIN="$RELEASE_DIR/bin/kaminowaku"
+RELEASE_MANIFEST="$RELEASE_DIR/BUILD-MANIFEST.txt"
 
 case "$TARGET" in
     check|install|all)
@@ -299,25 +376,6 @@ prepare_packaged_nosix_abi() {
     echo "[nosix] packaged ABI ready: $PLATFORM/$ARCH $REAL_NAME"
 }
 
-refresh_loader_cache() {
-    [ "$PACKAGED_NOSIX" -eq 1 ] || return 0
-
-    case "$UNAME_S" in
-        Linux)
-            command -v ldconfig >/dev/null 2>&1 \
-                || fail "ldconfig not found after installing packaged NOSIX."
-            ldconfig \
-                || fail "Failed to refresh Linux shared-library cache."
-            ;;
-        FreeBSD)
-            if command -v ldconfig >/dev/null 2>&1; then
-                ldconfig -m "$LIBDIR" \
-                    || fail "Failed to refresh FreeBSD shared-library hints for $LIBDIR."
-            fi
-            ;;
-    esac
-}
-
 case "$BUILD" in
     debug)
         CFLAGS="-g -O1 -fsanitize=address,leak -w -pthread"
@@ -333,9 +391,12 @@ case "$BUILD" in
 esac
 
 run_make() {
+    need_toolchain
     make \
         CC=clang \
         BUILD="$BUILD" \
+        OPENSSL_MODE="$OPENSSL_MODE" \
+        OPENSSL_PKG_CONFIG="$PKG_CONFIG_TOOL" \
         CPPFLAGS="$CPPFLAGS" \
         CFLAGS="$CFLAGS" \
         LDFLAGS="$LDFLAGS" \
@@ -352,6 +413,9 @@ check_source_assets() {
     [ -f "$SOURCE_ROOT/data.h" ] || fail "Missing core header: $SOURCE_ROOT/data.h"
     [ -f "$DEFAULT_PROFILE_SRC" ] || fail "Missing restore profile: $DEFAULT_PROFILE_SRC"
     [ -f "./LICENSE.txt" ] || fail "Missing Kaminowaku license: ./LICENSE.txt"
+    if [ "$OPENSSL_MODE" = offline ]; then
+        [ -f "$PACKAGED_OPENSSL_ROOT/LICENSE.txt" ] || fail "Missing vendored OpenSSL license."
+    fi
 
     if [ "$PACKAGED_NOSIX" -eq 1 ]; then
         [ -f "$PACKAGED_NOSIX_LICENSE" ] || fail "Missing packaged NOSIX license: $PACKAGED_NOSIX_LICENSE"
@@ -414,10 +478,9 @@ int main(void) {
 }
 EOF
 
-    OPENSSL_CFLAGS=$(pkg-config --cflags "$OPENSSL_PKG")
-    OPENSSL_LIBS=$(pkg-config --libs "$OPENSSL_PKG")
+    # OPENSSL_CFLAGS/LIBS come from check_openssl_dependency.
 
-    # Intentional word splitting: pkg-config returns compiler/linker argument lists.
+    # Intentional word splitting: vendored linker argument list.
     # shellcheck disable=SC2086
     clang \
         -I"$NOSIX_INCLUDEDIR" \
@@ -425,9 +488,9 @@ EOF
         "$ABI_SOURCE" \
         -L"$NOSIX_LIBDIR" \
         -lnosix \
-        $OPENSSL_LIBS \
+        $OPENSSL_LIBS -pthread \
         -o "$ABI_BINARY" \
-        || fail "NOSIX/OpenSSL ABI link check failed. Verify the shipped ABI and OpenSSL development packages."
+        || fail "NOSIX/OpenSSL ABI link check failed. Verify the shipped ABI and packaged OpenSSL static archives."
 
     LD_LIBRARY_PATH="$NOSIX_LIBDIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$ABI_BINARY" \
         || fail "NOSIX runtime ABI smoke failed to execute. Verify the shipped ABI and loader path."
@@ -436,19 +499,53 @@ EOF
     trap - EXIT HUP INT TERM
 }
 
+check_release_binary() {
+    RELEASE_READY=0
+    # An offline static executable must never be reused for an online build:
+    # only a fresh dynamic build tracks system-managed OpenSSL updates.
+    if [ "$OPENSSL_MODE" != offline ] || [ "$BUILD" != release ] || [ ! -s "$RELEASE_BIN" ]; then return 0; fi
+    [ -s "$RELEASE_MANIFEST" ] || fail "Prebuilt release manifest missing: $RELEASE_MANIFEST"
+    grep -Fx "PLATFORM=$PLATFORM_TAG" "$RELEASE_MANIFEST" >/dev/null || fail "Prebuilt binary platform mismatch."
+    grep -Fx "ARCH=$ARCH_TAG" "$RELEASE_MANIFEST" >/dev/null || fail "Prebuilt binary architecture mismatch."
+    grep -Fx 'BUILD=release' "$RELEASE_MANIFEST" >/dev/null || fail "Prebuilt binary is not a release build."
+    expected=$(sed -n 's/^BINARY_SHA256=//p' "$RELEASE_MANIFEST")
+    [ -n "$expected" ] || fail "Prebuilt release manifest has no executable checksum."
+    [ "$(hash_file "$RELEASE_BIN")" = "$expected" ] || fail "Prebuilt release binary checksum mismatch."
+    expected_nosix=$(sed -n 's/^NOSIX_SHA256=//p' "$RELEASE_MANIFEST")
+    [ -n "$expected_nosix" ] || fail "Prebuilt release manifest has no NOSIX checksum."
+    [ "$(hash_file "$NOSIX_LIBDIR/$NOSIX_REAL_NAME")" = "$expected_nosix" ] || fail "Prebuilt binary and packaged NOSIX ABI have different checksums."
+    expected_openssl=$(sed -n 's/^OPENSSL_SOURCE_SHA256=//p' "$RELEASE_MANIFEST")
+    [ "$expected_openssl" = "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2" ] || fail "Prebuilt binary references a different OpenSSL source version."
+    RELEASE_READY=1
+    echo "[check] Validated prebuilt executable: $RELEASE_BIN"
+}
+
 preflight() {
     # Dependency boundary is intentionally enforced here instead of through
     # a separate test harness: active Kaminowaku links NOSIX + OpenSSL only.
     echo "[check] source/runtime assets"
     check_source_assets
+    if [ "$OPENSSL_MODE" = offline ]; then
+        check_openssl_dependency
+    else
+        check_system_openssl_dependency
+    fi
     if [ "$PACKAGED_NOSIX" -eq 1 ]; then
         prepare_packaged_nosix_abi
-        echo "[check] packaged NOSIX/OpenSSL ABI"
-    else
-        echo "[check] installed NOSIX/OpenSSL ABI"
     fi
-    check_nosix_abi
-    echo "[check] PASS"
+    echo "[check] NOSIX ABI and $OPENSSL_MODE OpenSSL dependency"
+    check_release_binary
+    if [ "$OPENSSL_MODE" = online ]; then
+        echo "[check] System OpenSSL $SYSTEM_OPENSSL_VERSION; source build required."
+        check_nosix_abi
+    elif [ "$RELEASE_READY" -eq 1 ]; then
+        echo "[check] Validated native release: compilation and compiler checks are unnecessary."
+    elif command -v clang >/dev/null 2>&1; then
+        check_nosix_abi
+    else
+        fail "No compiler available and no validated prebuilt release binary is included."
+    fi
+    echo "[check] PASS ($OPENSSL_MODE)"
 }
 
 install_packaged_nosix_abi() {
@@ -457,20 +554,18 @@ install_packaged_nosix_abi() {
 
     prepare_packaged_nosix_abi
 
-    install -d -m 755 "$INCLUDEDIR"
+    install -d -m 755 "$SHARE_DIR/include/nosix"
     install -d -m 755 "$LIBDIR"
 
     for header in nosix.h nosix_poll.h nosix_datagram.h; do
-        install -m 0644 "$NOSIX_INCLUDEDIR/$header" "$INCLUDEDIR/$header"
+        install -m 0644 "$NOSIX_INCLUDEDIR/$header" "$SHARE_DIR/include/nosix/$header"
     done
 
     install -m 0755 "$NOSIX_LIBDIR/$NOSIX_REAL_NAME" "$LIBDIR/$NOSIX_REAL_NAME"
     ln -sfn "$NOSIX_REAL_NAME" "$LIBDIR/$NOSIX_SONAME_NAME"
     ln -sfn "$NOSIX_SONAME_NAME" "$LIBDIR/$NOSIX_LINKER_NAME"
 
-    refresh_loader_cache
-
-    echo "Installed packaged NOSIX ABI: $LIBDIR/$NOSIX_REAL_NAME"
+    echo "Installed private NOSIX ABI: $LIBDIR/$NOSIX_REAL_NAME"
 }
 
 install_runtime_assets() {
@@ -498,6 +593,21 @@ install_runtime_assets() {
         install -m 644 "$PACKAGED_NOSIX_MANIFEST" "$SHARE_LICENSES_DIR/NOSIX-BUILD-MANIFEST.txt"
     fi
 
+    if [ "$OPENSSL_MODE" = offline ]; then
+        install -m 644 "$PACKAGED_OPENSSL_ROOT/LICENSE.txt" "$SHARE_LICENSES_DIR/OPENSSL-LICENSE.txt"
+        install -m 644 "$OPENSSL_MANIFEST" "$SHARE_LICENSES_DIR/OPENSSL-BUILD-MANIFEST.txt"
+        rm -f "$SHARE_LICENSES_DIR/OPENSSL-SYSTEM.txt"
+    else
+        # The system package manager owns the dynamically linked OpenSSL
+        # library and its licensing/security updates.
+        rm -f "$SHARE_LICENSES_DIR/OPENSSL-LICENSE.txt" "$SHARE_LICENSES_DIR/OPENSSL-BUILD-MANIFEST.txt"
+        printf 'Mode: online
+Provider: operating system package manager
+OpenSSL version at build: %s
+'             "$SYSTEM_OPENSSL_VERSION" > "$SHARE_LICENSES_DIR/OPENSSL-SYSTEM.txt"
+        chmod 644 "$SHARE_LICENSES_DIR/OPENSSL-SYSTEM.txt"
+    fi
+
     # System Books are permanent Lua runtime assets. The interpreter is
     # Kaminowaku-owned C code; this does not install or depend on external Lua.
     if [ -d "$BOOKS_SRC_DIR" ]; then
@@ -519,23 +629,71 @@ case "$TARGET" in
     install)
         [ "$(id -u)" -eq 0 ] || fail "The install target requires root privileges. Run with sudo."
         preflight
-        echo "[make] clean"
-        run_make clean
-        echo "[nosix] install packaged ABI when present"
+        if [ "$RELEASE_READY" -eq 1 ]; then
+            BINARY="$RELEASE_BIN"
+            echo "[install] Using verified prebuilt native release (no toolchain needed)."
+        else
+            echo "[make] Clean and build using $OPENSSL_MODE OpenSSL dependencies"
+            run_make clean
+            run_make all
+            BINARY="$STAGE_ROOT/bin/kaminowaku"
+        fi
+        echo "[nosix] install private packaged ABI"
         install_packaged_nosix_abi
-        echo "[make] build through .STAGE ($BUILD)"
-        run_make all
-        echo "[make] install"
+        echo "[install] executable"
         install -d -m 755 "$BINDIR"
-        install -m 0755 "$STAGE_ROOT/bin/kaminowaku" "$BINDIR/kaminowaku"
+        install -m 0755 "$BINARY" "$BINDIR/kaminowaku"
         echo "Installed to $BINDIR/kaminowaku"
+        if command -v ldd >/dev/null 2>&1; then
+            LINKAGE=$(ldd "$BINDIR/kaminowaku" 2>&1) || fail "Installed executable cannot resolve runtime libraries: $LINKAGE"
+            echo "$LINKAGE" | grep "not found" >/dev/null 2>&1 && fail "Missing runtime library: $LINKAGE"
+            if [ "$OPENSSL_MODE" = offline ]; then
+                if printf '%s\n' "$LINKAGE" | grep -E 'libssl[.]so|libcrypto[.]so' >/dev/null 2>&1; then
+                    fail "Offline executable links system OpenSSL instead of packaged static archives."
+                fi
+            else
+                if ! printf '%s\n' "$LINKAGE" | grep -E 'libssl[.]so' >/dev/null 2>&1; then
+                    printf '%s\n' "$LINKAGE" >&2
+                    fail "Online executable is not dynamically linked to system libssl."
+                fi
+                if ! printf '%s\n' "$LINKAGE" | grep -E 'libcrypto[.]so' >/dev/null 2>&1; then
+                    printf '%s\n' "$LINKAGE" >&2
+                    fail "Online executable is not dynamically linked to system libcrypto."
+                fi
+            fi
+            echo "$LINKAGE" | grep 'libnosix.so.1' >/dev/null 2>&1 || fail "Private NOSIX runtime not resolved."
+            # $ORIGIN/../lib and the canonical lib directory are equivalent:
+            # compare real paths rather than relying on ldd's textual spelling.
+            command -v realpath >/dev/null 2>&1 || fail "realpath is required for private NOSIX runtime verification."
+            LOADED_NOSIX=$(printf '%s\n' "$LINKAGE" | awk '$1 == "libnosix.so.1" && $2 == "=>" { print $3; exit }')
+            case "$LOADED_NOSIX" in
+                /*) ;;
+                *) printf '%s\n' "$LINKAGE" >&2
+                   fail "Cannot determine an absolute NOSIX loader path from ldd." ;;
+            esac
+            EXPECTED_NOSIX=$(realpath "$LIBDIR/$NOSIX_REAL_NAME") \
+                || fail "Cannot resolve installed private NOSIX library."
+            ACTUAL_NOSIX=$(realpath "$LOADED_NOSIX") || {
+                printf '%s\n' "$LINKAGE" >&2
+                fail "Cannot resolve NOSIX loader path: $LOADED_NOSIX"
+            }
+            if [ "$EXPECTED_NOSIX" != "$ACTUAL_NOSIX" ]; then
+                printf 'Expected private NOSIX: %s\nActual loaded NOSIX:   %s\n' \
+                    "$EXPECTED_NOSIX" "$ACTUAL_NOSIX" >&2
+                printf '%s\n' "$LINKAGE" >&2
+                fail "NOSIX resolved outside Kaminowaku's private runtime directory."
+            fi
+        fi
         echo "[assets] install runtime assets"
         install_runtime_assets
         echo "Installed binary: ${BINDIR}/kaminowaku"
         echo "Installed restore profile: ${DEFAULT_PROFILE_DST}"
         echo "Installed system books: ${SHARE_BOOKS_DIR}"
         echo "Installed licenses: ${SHARE_LICENSES_DIR}"
-        echo "Kaminowaku has been installed."
+        echo "[+] Kaminowaku installed in $OPENSSL_MODE mode with private NOSIX."
+        if [ "$OPENSSL_MODE" = online ]; then
+            echo "[i] OpenSSL $SYSTEM_OPENSSL_VERSION is managed by the operating system package manager."
+        fi
         ;;
 
     all)
@@ -548,13 +706,15 @@ case "$TARGET" in
         ;;
 
     clean)
-        run_make clean
+        make clean
         echo "DONE."
         ;;
 
     info)
         echo "CC=clang"
         echo "BUILD=$BUILD"
+        echo "OPENSSL_MODE=$OPENSSL_MODE"
+        echo "SYSTEM_OPENSSL_VERSION=$SYSTEM_OPENSSL_VERSION"
         echo "OS=$UNAME_S"
         echo "ARCH=$UNAME_M"
         echo "CPPFLAGS=$CPPFLAGS"
@@ -564,6 +724,7 @@ case "$TARGET" in
         echo "BINDIR=$BINDIR"
         echo "INCLUDEDIR=$INCLUDEDIR"
         echo "LIBDIR=$LIBDIR"
+        echo "RELEASE_BIN=$RELEASE_BIN"
         echo "PLATFORM_TAG=$PLATFORM_TAG"
         echo "ARCH_TAG=$ARCH_TAG"
         echo "PACKAGED_NOSIX=$PACKAGED_NOSIX"
@@ -592,13 +753,17 @@ case "$TARGET" in
         echo "MAIN_RESULT=$MAIN_RESULT"
         echo "MODULE_SSH=$MODULE_SSH"
         echo "MODULE_HTTP=$MODULE_HTTP"
-        echo "OPENSSL_PKG=$OPENSSL_PKG"
+        echo "OPENSSL_LIBDIR=$OPENSSL_LIBDIR"
         echo "NOSIX_ABI_ENV=$NOSIX_ABI_ENV"
         echo "NOSIX_LINKER_NAME=$NOSIX_LINKER_NAME"
         echo "NOSIX_SONAME_NAME=$NOSIX_SONAME_NAME"
         echo "NOSIX_REAL_NAME=$NOSIX_REAL_NAME"
         echo ""
         echo "Makefile configuration:"
-        run_make info
+        if command -v make >/dev/null 2>&1; then
+            make OPENSSL_MODE="$OPENSSL_MODE" OPENSSL_PKG_CONFIG="$PKG_CONFIG_TOOL" info
+        else
+            echo "make is not available; skipping build-specific configuration."
+        fi
         ;;
 esac

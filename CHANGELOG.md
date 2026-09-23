@@ -6,7 +6,17 @@ Kaminowaku is currently pre-1.0. Entries describe released behavior rather than 
 
 ## Unreleased
 
-No documented release changes yet.
+### Added
+
+- offline installation with bundled OpenSSL 3.5.8 static libraries, verified native Linux/FreeBSD amd64 executables, and licensed private NOSIX ABI;
+- opt-in online installation against system-managed OpenSSL 3 shared libraries; missing build prerequisites may be installed through apt or FreeBSD pkg only when explicitly requested;
+- matching private NOSIX integrity, loader-path and OpenSSL linkage verification for both modes.
+
+### Changed
+
+- offline remains the default and never invokes package managers or downloaders; online builds follow OS OpenSSL security updates without requiring new OpenSSL blobs in this repository;
+- uninstallation preserves all user projects, captures and logs unless `--purge-user-data` is requested;
+- removed temporary offline deployment smoke-test scripts from the release source tree.
 
 ## 0.1.0 — 2026-09-21
 

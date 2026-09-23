@@ -595,3 +595,7 @@ Book TLS path
 ```
 
 Keeping those ownership boundaries intact prevents network behavior from leaking into command/UI code and prevents the Book runtime from creating an independent unmanaged network stack.
+
+## Vendored dependency packaging (Phase 1)
+
+`libs/nosix/` contains the licensed Linux/FreeBSD amd64 NOSIX ABI, including public headers and manifests. `libs/openssl/` contains the pinned OpenSSL 3.5.8 source, matching native static libraries, generated per-OS headers and license. The `--offline` mode uses only the pinned static OpenSSL archives and verified prebuilt native executable; it neither discovers system OpenSSL nor calls a package manager. The developer-only `libs/openssl/build-native.sh` prepares static OpenSSL from a verified source archive. The `--online` mode does **not** require the vendored OpenSSL archive or libraries: it optionally acquires missing prerequisites with the host package manager and compiles Kaminowaku against OS-managed OpenSSL 3 shared libraries using pkg-config/pkgconf. Both paths stage NOSIX privately, retain license and ABI integrity checks, and avoid global NOSIX/SSL replacements.
