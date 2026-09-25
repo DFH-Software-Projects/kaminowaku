@@ -784,10 +784,13 @@ int kaminowaku (_carry_forward * _prog_data) {
                         // Clean tokens and notify exit
                         input_tokens_free(_prog_data);
                         fprintf((FILE*)_prog_data->log, "--[%s]--\n" NOTICE_SUCCESS "Exit.\n", timestamp()); fflush((FILE*)_prog_data->log);
-                        fclose((FILE*)_prog_data->log);
+                        // @@ Drain queued UI output before closing the shared runtime log.
+                        kui_flush_log();
                         
-                        // @@ EXIT TUI
+                        // @@ EXIT TUI (also flushes pending UI output).
                         kui_exit();
+                        fclose((FILE*)_prog_data->log);
+                        _prog_data->log = NULL;
                         
                         if (_prog_data->debug_flag == ISTRUE) {
                                 printf(NOTICE_SUCCESS "Exit.\n");        
