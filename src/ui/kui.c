@@ -66,6 +66,7 @@ static uint64_t KUI_FRAME_START_SEQUENCE = 0;
 static pthread_t KUI_RENDER_THREAD;
 static int KUI_RENDER_RUNNING = ISFALSE;
 static int KUI_MOUSE_ENABLED = ISFALSE;
+static int KUI_SMALL = ISFALSE;
 static unsigned int KUI_LAYOUT_TOP = 0;
 static unsigned int KUI_LAYOUT_BOTTOM = 0;
 static _Thread_local int KUI_RENDER_CONTEXT = ISFALSE;
@@ -686,7 +687,7 @@ static void kui_handle_event(const ui_event_t *event) {
                         snprintf(KUI_INPUT_TEXT, sizeof(KUI_INPUT_TEXT), "%s", event->input);
                         snprintf(KUI_INPUT_PROMPT, sizeof(KUI_INPUT_PROMPT), "%s", event->prompt);
                         KUI_INPUT_CURSOR = event->cursor;
-                        if (KUI_INPUT_ACTIVE == ISTRUE)
+                        if (KUI_INPUT_ACTIVE == ISTRUE && KUI_SMALL != ISTRUE)
                                 kui_input_draw(KUI_INPUT_PROMPT, KUI_INPUT_TEXT,
                                         (int)KUI_INPUT_CURSOR);
                         break;
@@ -696,7 +697,7 @@ static void kui_handle_event(const ui_event_t *event) {
                 case UI_EVENT_INPUT_BEGIN:
                         KUI_INPUT_ACTIVE = ISTRUE;
                         KUI_INPUT_DIRTY = ISTRUE;
-                        kui_input_anchor();
+                        if (KUI_SMALL != ISTRUE) kui_input_anchor();
                         break;
                 case UI_EVENT_INPUT_END:
                         KUI_INPUT_ACTIVE = ISFALSE;
@@ -952,8 +953,6 @@ void kui_mouse_capture_set(int enabled) {
 /* Rendering                                                                */
 /* ------------------------------------------------------------------------ */
 
-static int KUI_SMALL = ISFALSE;
-
 static void kui_render_small(unsigned rows, unsigned cols) {
         (void)cols;
         if (KUI_SMALL != ISTRUE) {
@@ -975,6 +974,7 @@ typedef struct {
         size_t byte;
         int valid;
 } KUI_VIEW_ANCHOR;
+static KUI_VIEW_ANCHOR KUI_SAVED_ANCHOR = {0};
 
 static KUI_VIEW_ANCHOR kui_anchor_before_resize(const KUI_SCROLLBACK *sb,
         unsigned int old_cols) {
@@ -1047,7 +1047,7 @@ static void kui_render_page_owned(void) {
         old_cols = g_prog_data->term_cols;
         first_time = (old_rows == 0 && old_cols == 0);
         size_changed = (first_time || old_rows != rows || old_cols != cols);
-        if (size_changed && !first_time)
+        if (size_changed && !first_time && KUI_SMALL != ISTRUE)
                 resize_anchor = kui_anchor_before_resize(
                         &g_prog_data->kui_scrollback, old_cols);
         if (size_changed) {
@@ -1061,12 +1061,16 @@ static void kui_render_page_owned(void) {
         // @@ Do not attempt to fit a multi-line banner into an unusably
         // narrow terminal, or overwrite the input row on a tiny terminal.
         if (rows < KUI_MIN_ROWS || cols < 48) {
+                if (resize_anchor.valid) KUI_SAVED_ANCHOR = resize_anchor;
+                KUI_LAYOUT_TOP = KUI_LAYOUT_BOTTOM = 0;
                 if (size_changed) KUI_SMALL = ISFALSE;
                 ui_screen_invalidate(&KUI_SCREEN);
                 kui_render_small(rows, cols);
                 return;
         }
         if (KUI_SMALL == ISTRUE) {
+                if (KUI_SAVED_ANCHOR.valid) resize_anchor = KUI_SAVED_ANCHOR;
+                KUI_SAVED_ANCHOR.valid = ISFALSE;
                 KUI_SMALL = ISFALSE;
                 banner_reset();
                 ui_screen_invalidate(&KUI_SCREEN);
@@ -1086,6 +1090,8 @@ static void kui_render_page_owned(void) {
                 : rows;
         if (content_top > content_bottom) content_top = content_bottom;
         if ((unsigned int)banner_rows >= rows - 1) {
+                if (resize_anchor.valid) KUI_SAVED_ANCHOR = resize_anchor;
+                KUI_LAYOUT_TOP = KUI_LAYOUT_BOTTOM = 0;
                 KUI_SMALL = ISFALSE;
                 ui_screen_invalidate(&KUI_SCREEN);
                 kui_render_small(rows, cols);
@@ -1165,6 +1171,7 @@ void kui_enter(_carry_forward * _prog_data) {
         KUI_SMALL = ISFALSE;
         KUI_MOUSE_ENABLED = ISFALSE;
         KUI_LAYOUT_TOP = KUI_LAYOUT_BOTTOM = 0;
+        KUI_SAVED_ANCHOR.valid = ISFALSE;
         if (ui_screen_init(&KUI_SCREEN, STDOUT_FILENO) == 0)
                 KUI_SCREEN_READY = ISTRUE;
         memset(KUI_CHURNING, 0x00, sizeof(KUI_CHURNING));
