@@ -46,6 +46,8 @@ int main(void) {
         assert(pthread_join(producer, NULL) == 0);
         assert(pthread_join(consumer, NULL) == 0);
         assert(ui_events_pending() == 0);
+        assert(ui_events_high_watermark() > 0);
+        assert(ui_events_high_watermark() <= UI_EVENT_CAPACITY);
         assert(ui_events_post(&event) == -1);
         assert(ui_events_post_wait(&event) == -1);
         assert(ui_events_wait_next(&event) == 0);
