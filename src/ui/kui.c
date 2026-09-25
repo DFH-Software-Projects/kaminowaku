@@ -508,10 +508,13 @@ static void kui_sink_line(const char *line) {
         FILE *fp;
         if (!g_prog_data || !line) return;
         fp = (FILE *)g_prog_data->log;
-        if (!fp) return;
-        kui_log_frame_header_if_needed(fp);
-        fprintf(fp, "%s\n", line);
-        if (g_prog_data->debug_flag == ISTRUE) fflush(fp);
+        // @@ Presentation must not disappear if runtime logging is unavailable.
+        // Preserve log ordering when an active stream exists.
+        if (fp) {
+                kui_log_frame_header_if_needed(fp);
+                fprintf(fp, "%s\n", line);
+                if (g_prog_data->debug_flag == ISTRUE) fflush(fp);
+        }
         kui_scrollback_push(line);
 }
 
@@ -664,9 +667,13 @@ static void kui_handle_event(const ui_event_t *event) {
                         break;
                 case UI_EVENT_SCROLL:
                         if (g_prog_data) {
+                                unsigned int previous = g_prog_data->kui_scrollback.view_offset;
                                 kui_scrollback_scroll_by(&g_prog_data->kui_scrollback,
                                         event->scroll_rows);
-                                kui_render_page_owned();
+                                // @@ Don't repaint when the user is already at the
+                                // top/bottom boundary or a wheel event is neutral.
+                                if (previous != g_prog_data->kui_scrollback.view_offset)
+                                        kui_render_page_owned();
                         }
                         break;
                 case UI_EVENT_INPUT:
