@@ -12,6 +12,7 @@ void kui_input_update(const char *prompt, const char *input, unsigned int cursor
 void kui_input_end(void);
 void kui_input_scroll(int rows);
 void kui_input_bell(void);
+void kui_input_refresh_page(void);
 
 void kui_add_line(const char *fmt, ...);
 void kui_add_line_and_render(const char *fmt, ...);
