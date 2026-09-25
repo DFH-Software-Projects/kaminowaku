@@ -1,6 +1,6 @@
 # Beta V2 — TUI architecture and display modes
 
-Status: Phases 1–3 implemented on beta-v2; Phase 4's thread-safe queue and stress test have been added, but the dedicated renderer and asynchronous command worker are not activated. Full-application integration verification and FreeBSD remain outstanding.
+Status: Phases 1–3 are implemented, and Phase 4 now starts a dedicated KUI rendering thread with synchronous command-to-UI barriers. Command execution remains on the application thread rather than on a separately spawned worker; input during long-running commands, full application integration and FreeBSD validation remain outstanding.
 
 ## Objectives
 
@@ -110,11 +110,22 @@ Keep targeted Phase 1 Linux queue and input tests during development. Consolidat
 ## Phase 4 foundation (not yet active)
 
 - `src/ui/ui_events.c` now uses a POSIX mutex and condition variables. It preserves ordered, copied events and provides nonblocking posting, blocking backpressure for workers, waiting consumption, queue-draining close and a reset suitable for startup after all threads have joined.
-- Existing KUI event consumption is **still synchronous**. Do not spawn a renderer thread until every terminal-writing pathway (including progress rendering and PTY handoff) is assigned an owner and the full build is verified. The current `kui_post_event()` full-queue fallback drains events in the calling thread; replace this with producer backpressure before activating concurrency.
+- The dedicated renderer consumes queued UI events after TUI entry. Public render requests, input snapshots, output logging, state changes and log flushes are serialized through a producer/consumer acknowledgment barrier. A synchronous fallback remains if thread creation fails.
 - `tests/tui_phase4_queue.c` and `tests/test-tui-thread-queue.sh` stress 30,000 FIFO events with one producer and one consumer, bounded backpressure, drain-after-close and queue reset. The equivalent standalone queue test passed locally on Linux under AddressSanitizer and UndefinedBehaviorSanitizer; branch CI includes the regression and full-build smoke attempt.
-- Before enabling the worker threads: finish banner/input snapshot ownership, make shutdown drain logs before closing streams, ensure PTY tools and processes fork safely, and instrument event backlog and render latency. Validate under a real pseudo-terminal on Linux, then FreeBSD.
+- Remaining work: input during long-running commands, full state-snapshot isolation from application mutations, metric collection and real PTY integration testing. Validate on a Linux pseudo-terminal, then FreeBSD before release.
 
 ## Phase 5 cleanup inventory
 
 - Review all `tests/tui_phase*.c` and `tests/test-tui-*.sh`; retain stable regressions in a consolidated suite and delete obsolete one-off harnesses.
 - Remove generated objects, binaries and temporary staging outputs; preserve release documentation if it materially helps maintainers.
+
+## Phase 4 renderer activation
+
+- On successful `kui_enter()`, KUI launches a dedicated pthread. It alone consumes the event queue and paints terminal output during ordinary interactive operation. KIO publishes input and scroll events; command handlers use the established `kui_add_line()` interfaces. KUI retains the legacy synchronous path if thread creation fails.
+- Calls that must precede application state mutations—output logging, explicit page paints, frame starts, mode changes, churn indicator updates and runtime log flushes—use per-request condition-variable acknowledgments. Output production is bounded and ordered by the existing queue.
+- The renderer reads mutable banner state only during an explicit synchronous paint, when the calling application thread is blocked on the acknowledgment. Asynchronous scroll events occur in KIO's ordinary input loop, where command execution is not simultaneously active. Network subsystems with their own mutation threads remain a separate integration-verification concern.
+- `kui_guard.c` delegates mouse reporting to KUI instead of writing terminal escape codes independently.
+- `tool_pty.c` calls `kui_fork_prepare()` to drain and join the renderer before `fork()`, then `kui_fork_parent()` to restart it only in the parent. This prevents inheriting a live KUI pthread into the external-tool child. The shutdown path joins the renderer before freeing screen buffers, resetting mouse modes, restoring the terminal and closing the runtime log.
+- The application thread continues to execute existing `cmd_scan()` paths synchronously. A separately scheduled command worker and concurrent raw input navigation during scans are not yet enabled; don't claim Phase 4 is fully complete until those have been addressed or explicitly scoped out.
+- `tests/tui_phase4_handoff.c` covers an ordered 1,000-event drain, worker join, fork and second worker startup. A matching standalone Linux test of the event-transport source passed with ASan/UBSan; the full integrated KUI/PTTY build and behavior are still unverified.
+- The branch CI workflow now runs the Phase 1–4 standalone regressions followed by a Linux `make OPENSSL_MODE=online` smoke attempt. A successful CI run has not been independently confirmed here.
