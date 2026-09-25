@@ -584,10 +584,13 @@ static void kui_input_draw(const char *prompt, const char *INPUT_BUFFER, int cur
         int term_width = ws.ws_col > 0 ? ws.ws_col : 80;
 
         int prompt_vis = visible_width_noansi(prompt);
-        int available  = term_width - prompt_vis;   // space left for input text
-
-        if (available < 1)
-                available = 1;                      // always leave *some* room
+        // @@ Contextual prompts can be wider than a newly shrunken terminal.
+        // The banner retains context; use a compact input marker instead of
+        // wrapping the last screen row and accidentally scrolling the TUI.
+        const char *draw_prompt = prompt_vis >= term_width - 4 ? "> " : prompt;
+        prompt_vis = visible_width_noansi(draw_prompt);
+        int available = term_width - prompt_vis - 1; // reserve the final column
+        if (available < 1) available = 1;
 
         int len = (int)strlen(INPUT_BUFFER);
         if (cursor < 0)
@@ -623,7 +626,7 @@ static void kui_input_draw(const char *prompt, const char *INPUT_BUFFER, int cur
         /* Restore anchor, clear the line, and draw prompt + visible slice. */
         printf("\033[u");          /* restore saved cursor (anchor at line start) */
         printf("\r\033[K");        /* CR + clear to end of line */
-        printf("%s", prompt);
+        printf("%s", draw_prompt);
         if (view_len > 0)
                 fwrite(INPUT_BUFFER + start, 1, (size_t)view_len, stdout);
 
