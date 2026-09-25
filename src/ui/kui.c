@@ -472,6 +472,10 @@ static void kui_scrollback_push(const char *line) {
                 idx = sb->head;
                 evicted_rows = kui_line_wrap_rows(sb->lines[idx], cols);
                 sb->head = (sb->head + 1) % KUI_MAX_SCROLL_LINES;
+                // @@ A complete wrap could make head/count look unchanged
+                // after many unseen evictions. Force one index rebuild.
+                if (sb->head == 0)
+                        ui_wrap_index_reset(&KUI_WRAP_INDEX);
         }
 
         memcpy(sb->lines[idx], tmp, len);
