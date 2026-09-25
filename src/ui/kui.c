@@ -18,6 +18,8 @@ Little note about this code:
 #include "ui_events.h"
 #include "ui_screen.h"
 #include "ui_wrap_index.h"
+#include "ui_layout.h"
+#include "ui_text.h"
 #include "banner.h"
 #include "helpers.h"
 
@@ -69,6 +71,7 @@ static int KUI_MOUSE_ENABLED = ISFALSE;
 static int KUI_SMALL = ISFALSE;
 static unsigned int KUI_LAYOUT_TOP = 0;
 static unsigned int KUI_LAYOUT_BOTTOM = 0;
+static unsigned int KUI_LAST_PROMPT_ROW = 0;
 static _Thread_local int KUI_RENDER_CONTEXT = ISFALSE;
 
 typedef struct {
@@ -160,6 +163,17 @@ static size_t kui_ansi_seq_len(const char *s, size_t i, size_t n) {
                 return (n - i);
         }
 
+        /* OSC controls terminate with BEL or ST (ESC backslash). */
+        if (i + 1 < n && s[i + 1] == ']') {
+                j = i + 2;
+                while (j < n) {
+                        if (s[j] == '\a') return j - i + 1;
+                        if (s[j] == '\x1b' && j + 1 < n && s[j + 1] == '\\')
+                                return j - i + 2;
+                        j++;
+                }
+                return n - i;
+        }
         /* Other ESC: best effort */
         if (i + 1 < n) return 2;
         return 1;
@@ -205,10 +219,8 @@ static size_t kui_wrap_find_end(const char *s, size_t n, size_t start, unsigned 
         size_t glen;
         size_t esc_len;
         if (!s || start >= n || cols == 0) return start;
-        /* Skip leading spaces/tabs for each segment */
+        /* Preserve initial indentation; callers skip wrap delimiters. */
         i = start;
-        while (i < n && kui_is_space_byte((unsigned char)s[i])) i++;
-        start = i;
         while (i < n) {
                 if ((unsigned char)s[i] == 0x1b) {
                         esc_len = kui_ansi_seq_len(s, i, n);
@@ -216,7 +228,12 @@ static size_t kui_wrap_find_end(const char *s, size_t n, size_t start, unsigned 
                         i += esc_len;
                         continue;
                 }
-                kui_next_glyph(s, i, n, &gw, &glen);
+                if (s[i] == '\t') {
+                        gw = (int)ui_text_tab_width(used);
+                        glen = 1;
+                } else {
+                        kui_next_glyph(s, i, n, &gw, &glen);
+                }
                 if (glen == 0) break;
                 if (used + (unsigned int)gw > cols) break;
                 if (glen == 1 && kui_is_space_byte((unsigned char)s[i])) {
@@ -306,8 +323,11 @@ static size_t kui_style_before(const char *line, size_t pos, char *style, size_t
 // when allocation cannot support unusually large terminal dimensions.
 static void kui_paint_row(unsigned int row, const char *text, size_t length,
         const char *style, size_t style_length) {
+        char safe[UI_SCREEN_MAX_ROW_BYTES];
+        size_t safe_length = ui_text_render_row(text, length, safe, sizeof(safe));
         if (KUI_SCREEN_ACTIVE == ISTRUE) {
-                if (ui_screen_set(&KUI_SCREEN, row, text, length, style, style_length) == 0)
+                if (ui_screen_set(&KUI_SCREEN, row, safe, safe_length,
+                                style, style_length) == 0)
                         return;
                 KUI_SCREEN_FAILED = ISTRUE;
                 return;
@@ -316,8 +336,8 @@ static void kui_paint_row(unsigned int row, const char *text, size_t length,
         (void)write(STDOUT_FILENO, "\x1b[0m", 4);
         if (style && style_length)
                 (void)write(STDOUT_FILENO, style, style_length);
-        if (text && length)
-                (void)write(STDOUT_FILENO, text, length);
+        if (safe_length)
+                (void)write(STDOUT_FILENO, safe, safe_length);
         (void)write(STDOUT_FILENO, "\x1b[0m\x1b[K", 7);
 }
 
@@ -459,7 +479,7 @@ static unsigned int kui_scrollback_render(
         }
 }
 
-static void kui_scrollback_push(const char *line) {
+static void kui_scrollback_push_span(const char *line, size_t span_len) {
         KUI_SCROLLBACK *sb;
         unsigned int idx;
         unsigned int cols;
@@ -468,9 +488,8 @@ static void kui_scrollback_push(const char *line) {
         size_t len;
         if (!g_prog_data || !line) return;
         sb = &g_prog_data->kui_scrollback;
-        cols = g_prog_data->term_cols > 0 ? g_prog_data->term_cols : 80;
-        len = strnlen(line, KUI_MAX_SCROLL_COLS - 1);
-        if (len > 0 && line[len - 1] == '\n') len--;
+        cols = g_prog_data->term_cols > 1 ? g_prog_data->term_cols - 1 : 79;
+        len = span_len < KUI_MAX_SCROLL_COLS - 1 ? span_len : KUI_MAX_SCROLL_COLS - 1;
         memcpy(tmp, line, len);
         tmp[len] = '\0';
         added_rows = kui_line_wrap_rows(tmp, cols);
@@ -497,6 +516,25 @@ static void kui_scrollback_push(const char *line) {
                 unsigned int delta = added_rows;
                 sb->view_offset = delta > UINT32_MAX - sb->view_offset
                         ? UINT32_MAX : sb->view_offset + delta;
+        }
+}
+
+/* Embedded newlines and PTY carriage returns become separate logical rows. */
+static void kui_scrollback_push(const char *line) {
+        const char *start, *scan;
+        if (!line) return;
+        start = scan = line;
+        for (;;) {
+                if (*scan && *scan != '\n' && *scan != '\r') {
+                        scan++;
+                        continue;
+                }
+                kui_scrollback_push_span(start, (size_t)(scan - start));
+                if (!*scan) break;
+                if (*scan == '\r' && scan[1] == '\n') scan++;
+                scan++;
+                start = scan;
+                if (!*scan) break; // Do not add an extra row for a final newline.
         }
 }
 
@@ -539,40 +577,44 @@ static char KUI_INPUT_LAST_PROMPT[DOUBLE_BLOCK];
 static int KUI_INPUT_LAST_WIDTH = 0;
 static int KUI_INPUT_LAST_START = -1;
 
-static int visible_width_noansi(const char *s)
-{
-        int w = 0;
-        const unsigned char *p = (const unsigned char *)s;
-
+static int visible_width_noansi(const char *s) {
+        int width = 0;
+        const char *p = s;
+        if (!p) return 0;
         while (*p) {
-                if (*p == '\x1b') {
-                        // Skip CSI: ESC '[' ... final byte 0x40–0x7E
-                        p++;
-                        if (*p == '[') {
-                                p++;
-                                while (*p && !(*p >= 0x40 && *p <= 0x7E)) p++;
-                                if (*p) p++;      // consume final
-                        }
+                if ((unsigned char)*p == 0x1b) {
+                        p += kui_ansi_seq_len(p, 0, strlen(p));
                         continue;
                 }
                 if (*p == '\t') {
-                        int to_next = TAB_STOP - (w % TAB_STOP);
-                        if (to_next < 0) to_next = 0;
-                        w += to_next;
+                        width += (int)ui_text_tab_width((unsigned int)width);
                         p++;
                         continue;
                 }
                 if (*p == '\r' || *p == '\n') {
-                        // Keep it simple: treat as column reset on the same logical line.
-                        // (If you *do* embed newlines in prompts, consider tracking rows too.)
-                        w = 0;
+                        width = 0;
                         p++;
                         continue;
                 }
-                w++;
-                p++;
+                if ((unsigned char)*p < 0x20) {
+                        p++;
+                        continue;
+                }
+                mbstate_t state = {0};
+                wchar_t glyph;
+                size_t bytes = mbrtowc(&glyph, p, strlen(p), &state);
+                int columns;
+                if (bytes == (size_t)-1 || bytes == (size_t)-2 || bytes == 0) {
+                        bytes = 1;
+                        columns = 1;
+                } else {
+                        columns = wcwidth(glyph);
+                        if (columns < 0) columns = 1;
+                }
+                width += columns;
+                p += bytes;
         }
-        return w;
+        return width;
 }
 
 static void kui_input_draw(const char *prompt, const char *INPUT_BUFFER, int cursor) {
@@ -1047,7 +1089,7 @@ static void kui_anchor_after_resize(KUI_SCROLLBACK *sb, unsigned int cols,
 }
 
 static void kui_render_page_owned(void) {
-        unsigned rows, cols, old_rows, old_cols, content_top, content_bottom, prompt_row;
+        unsigned rows, cols, old_rows, old_cols, content_top, content_bottom, prompt_row, rendered_lines, wrap_cols;
         int8_t first_time, size_changed;
         int banner_rows;
         KUI_SCROLLBACK *sb;
@@ -1056,13 +1098,14 @@ static void kui_render_page_owned(void) {
         kui_dispatch_events();
         if (!g_prog_data) return;
         kui_get_winsize(&rows, &cols);
+        wrap_cols = cols > 1 ? cols - 1 : 1; // Reserve the auto-wrap column.
         old_rows = g_prog_data->term_rows;
         old_cols = g_prog_data->term_cols;
         first_time = (old_rows == 0 && old_cols == 0);
         size_changed = (first_time || old_rows != rows || old_cols != cols);
         if (size_changed && !first_time && KUI_SMALL != ISTRUE)
                 resize_anchor = kui_anchor_before_resize(
-                        &g_prog_data->kui_scrollback, old_cols);
+                        &g_prog_data->kui_scrollback, old_cols > 1 ? old_cols - 1 : 1);
         if (size_changed) {
                 g_prog_data->term_rows = rows;
                 g_prog_data->term_cols = cols;
@@ -1076,6 +1119,7 @@ static void kui_render_page_owned(void) {
         if (rows < KUI_MIN_ROWS || cols < 48) {
                 if (resize_anchor.valid) KUI_SAVED_ANCHOR = resize_anchor;
                 KUI_LAYOUT_TOP = KUI_LAYOUT_BOTTOM = 0;
+                KUI_LAST_PROMPT_ROW = 0;
                 if (size_changed) KUI_SMALL = ISFALSE;
                 ui_screen_invalidate(&KUI_SCREEN);
                 kui_render_small(rows, cols);
@@ -1096,8 +1140,7 @@ static void kui_render_page_owned(void) {
         banner_rows = banner(g_prog_data);
         if (banner_rows < 0) banner_rows = 0;
         content_top = (unsigned)banner_rows + 1;
-        // @@ The input owns the bottom row, independently of scrollback.
-        prompt_row = rows;
+        // @@ Bottom row is a fallback; input follows visible output.
         content_bottom = rows > (KUI_CHURNING_ACTIVE == ISTRUE ? 2U : 1U)
                 ? rows - (KUI_CHURNING_ACTIVE == ISTRUE ? 2U : 1U)
                 : rows;
@@ -1105,13 +1148,14 @@ static void kui_render_page_owned(void) {
         if ((unsigned int)banner_rows >= rows - 1) {
                 if (resize_anchor.valid) KUI_SAVED_ANCHOR = resize_anchor;
                 KUI_LAYOUT_TOP = KUI_LAYOUT_BOTTOM = 0;
+                KUI_LAST_PROMPT_ROW = 0;
                 KUI_SMALL = ISFALSE;
                 ui_screen_invalidate(&KUI_SCREEN);
                 kui_render_small(rows, cols);
                 return;
         }
         if (resize_anchor.valid)
-                kui_anchor_after_resize(&g_prog_data->kui_scrollback, cols,
+                kui_anchor_after_resize(&g_prog_data->kui_scrollback, wrap_cols,
                         content_bottom - content_top + 1, resize_anchor);
         KUI_LAYOUT_TOP = content_top;
         KUI_LAYOUT_BOTTOM = content_bottom;
@@ -1119,26 +1163,49 @@ static void kui_render_page_owned(void) {
         KUI_SCREEN_ACTIVE = ISFALSE;
         KUI_SCREEN_FAILED = ISFALSE;
         if (KUI_SCREEN_READY == ISTRUE
-                && ui_screen_begin(&KUI_SCREEN, rows, cols, content_top, rows - 1) == 0)
+                && ui_screen_begin(&KUI_SCREEN, rows, cols, content_top, rows) == 0)
                 KUI_SCREEN_ACTIVE = ISTRUE;
 
         sb = &g_prog_data->kui_scrollback;
         if (sb->line_count == 0 && sb->head == 0 && sb->view_offset == 0)
                 kui_scrollback_init(sb);
+        // @@ Erase old out-of-band input BEFORE direct fallback painting.
+        if (KUI_SCREEN_ACTIVE != ISTRUE && KUI_LAST_PROMPT_ROW &&
+                        KUI_LAST_PROMPT_ROW <= rows) {
+                kui_goto(KUI_LAST_PROMPT_ROW, 1);
+                (void)write(STDOUT_FILENO, "\x1b[0m\x1b[2K", 8);
+                KUI_INPUT_DIRTY = ISTRUE;
+        }
 
-        (void)kui_scrollback_render(sb, content_top, content_bottom, cols);
+        rendered_lines = kui_scrollback_render(sb, content_top, content_bottom, wrap_cols);
         if (sb->view_offset > KUI_VIEW_MAX_OFF)
                 sb->view_offset = KUI_VIEW_MAX_OFF;
+        prompt_row = ui_prompt_row(content_top, rendered_lines, rows,
+                        KUI_CHURNING_ACTIVE == ISTRUE);
+        // @@ Input sits outside the cached screen: invalidate old prompt row.
+        if (KUI_LAST_PROMPT_ROW &&
+                        (KUI_LAST_PROMPT_ROW != prompt_row || KUI_INPUT_ACTIVE != ISTRUE)) {
+                if (KUI_SCREEN_ACTIVE == ISTRUE &&
+                                KUI_LAST_PROMPT_ROW >= content_top &&
+                                KUI_LAST_PROMPT_ROW <= rows)
+                        ui_screen_invalidate_row(&KUI_SCREEN, KUI_LAST_PROMPT_ROW);
+                KUI_INPUT_DIRTY = ISTRUE;
+        }
         if (KUI_CHURNING_ACTIVE == ISTRUE)
                 kui_paint_row(rows - 1, KUI_CHURNING,
                         strnlen(KUI_CHURNING, sizeof(KUI_CHURNING)), "", 0);
 
-        // @@ If a desired row could not be staged, paint this frame using the
-        // legacy row writer rather than committing a partially staged screen.
         if (KUI_SCREEN_FAILED == ISTRUE) {
                 KUI_SCREEN_ACTIVE = ISFALSE;
                 ui_screen_invalidate(&KUI_SCREEN);
-                (void)kui_scrollback_render(sb, content_top, content_bottom, cols);
+                if (KUI_LAST_PROMPT_ROW && KUI_LAST_PROMPT_ROW <= rows) {
+                        kui_goto(KUI_LAST_PROMPT_ROW, 1);
+                        (void)write(STDOUT_FILENO, "\x1b[0m\x1b[2K", 8);
+                }
+                KUI_INPUT_DIRTY = ISTRUE;
+                rendered_lines = kui_scrollback_render(sb, content_top, content_bottom, wrap_cols);
+                prompt_row = ui_prompt_row(content_top, rendered_lines, rows,
+                                KUI_CHURNING_ACTIVE == ISTRUE);
                 if (KUI_CHURNING_ACTIVE == ISTRUE)
                         kui_paint_row(rows - 1, KUI_CHURNING,
                                 strnlen(KUI_CHURNING, sizeof(KUI_CHURNING)), "", 0);
@@ -1148,6 +1215,7 @@ static void kui_render_page_owned(void) {
         }
 
         KUI_SCREEN_ACTIVE = ISFALSE;
+        KUI_LAST_PROMPT_ROW = prompt_row;
         kui_goto(prompt_row, 1);
         (void)write(STDOUT_FILENO, ANSI_CURSOR_SHOW, strlen(ANSI_CURSOR_SHOW));
         fflush(stdout);
@@ -1184,6 +1252,7 @@ void kui_enter(_carry_forward * _prog_data) {
         KUI_SMALL = ISFALSE;
         KUI_MOUSE_ENABLED = ISFALSE;
         KUI_LAYOUT_TOP = KUI_LAYOUT_BOTTOM = 0;
+        KUI_LAST_PROMPT_ROW = 0;
         KUI_SAVED_ANCHOR.valid = ISFALSE;
         if (ui_screen_init(&KUI_SCREEN, STDOUT_FILENO) == 0)
                 KUI_SCREEN_READY = ISTRUE;

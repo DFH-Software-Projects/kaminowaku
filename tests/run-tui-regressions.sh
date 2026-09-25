@@ -25,6 +25,7 @@ run complete-kio "$ROOT/src/ui/kio_escape.c" "$ROOT/src/ui/kio.c" "$ROOT/tests/t
 run wheel-bursts "$ROOT/src/ui/ui_events.c" "$ROOT/tests/tui_scroll_regression.c"
 run queue-fifo "$ROOT/src/ui/ui_events.c" "$ROOT/tests/tui_phase1_events.c"
 run screen-diff "$ROOT/src/ui/ui_screen.c" "$ROOT/tests/tui_phase2_screen.c"
+run row-layout "$ROOT/src/ui/ui_screen.c" "$ROOT/src/ui/ui_text.c" "$ROOT/tests/tui_row_layout.c"
 run wrap-index "$ROOT/src/ui/ui_wrap_index.c" "$ROOT/tests/tui_phase3_wrap_index.c"
 run concurrent-queue "$ROOT/src/ui/ui_events.c" "$ROOT/tests/tui_phase4_queue.c"
 run thread-handoff "$ROOT/src/ui/ui_events.c" "$ROOT/tests/tui_phase4_handoff.c"

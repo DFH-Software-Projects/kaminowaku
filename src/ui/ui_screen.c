@@ -39,6 +39,12 @@ void ui_screen_invalidate(UI_SCREEN *screen) {
                 screen->current[i].valid = 0;
 }
 
+/* @@ Out-of-band prompt edits must invalidate their former physical row. */
+void ui_screen_invalidate_row(UI_SCREEN *screen, unsigned int row) {
+        if (screen && screen->current && row > 0 && row <= screen->rows)
+                screen->current[row - 1].valid = 0;
+}
+
 int ui_screen_begin(UI_SCREEN *screen, unsigned int rows, unsigned int cols,
         unsigned int top, unsigned int bottom) {
         UI_SCREEN_ROW *current;

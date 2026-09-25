@@ -33,6 +33,7 @@ typedef struct {
 int ui_screen_init(UI_SCREEN *screen, int fd);
 void ui_screen_destroy(UI_SCREEN *screen);
 void ui_screen_invalidate(UI_SCREEN *screen);
+void ui_screen_invalidate_row(UI_SCREEN *screen, unsigned int row);
 int ui_screen_begin(UI_SCREEN *screen, unsigned int rows, unsigned int cols,
         unsigned int top, unsigned int bottom);
 int ui_screen_set(UI_SCREEN *screen, unsigned int row, const char *text,

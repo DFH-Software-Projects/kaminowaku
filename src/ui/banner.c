@@ -404,7 +404,7 @@ static void build_plain_exact(int cols, const char *content, char *out, size_t o
         if (!out || outsz == 0)
                 return;
 
-        int inner = cols;      // full width (no walls)
+        int inner = cols > 1 ? cols - 1 : cols; // Avoid pending terminal auto-wrap.
         if (inner < 0)
                 inner = 0;
 
