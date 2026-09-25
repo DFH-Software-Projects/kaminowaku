@@ -42,7 +42,9 @@ static void stop_worker(pthread_t thread) {
         assert(pthread_cond_init(&ack.ready, NULL) == 0);
         event.type = UI_EVENT_STOP;
         event.completion = &ack;
-        assert(ui_events_post_wait(&event) == 0);
+        assert(ui_events_post_and_close(&event) == 0);
+        // @@ No new work may appear behind the terminal owner's stop event.
+        assert(ui_events_post_wait(&event) == -1);
         pthread_mutex_lock(&ack.lock);
         while (!ack.done)
                 pthread_cond_wait(&ack.ready, &ack.lock);
