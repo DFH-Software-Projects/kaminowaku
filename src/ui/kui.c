@@ -619,6 +619,10 @@ void kui_input_scroll(int rows) {
         kui_dispatch_events();
 }
 
+void kui_input_refresh_page(void) {
+        kui_render_page();
+}
+
 void kui_input_bell(void) {
         (void)write(STDOUT_FILENO, "\a", 1);
 }
