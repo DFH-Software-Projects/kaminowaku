@@ -30,6 +30,7 @@ Little note about this code:
 #include <unistd.h>
 #include <stdint.h>
 #include <sys/ioctl.h>
+#include <pthread.h>
 
 /* ------------------------------------------------------------------------ */
 /* Globals and macros                                                       */
@@ -60,6 +61,22 @@ static unsigned int KUI_VIEW_MAX_OFF = 0;
 static kui_display_mode_t KUI_DISPLAY_MODE = KUI_DISPLAY_CONTINUOUS;
 static uint64_t KUI_OUTPUT_SEQUENCE = 0;
 static uint64_t KUI_FRAME_START_SEQUENCE = 0;
+
+// @@ Only the renderer thread paints once it has started.
+static pthread_t KUI_RENDER_THREAD;
+static int KUI_RENDER_RUNNING = ISFALSE;
+
+typedef struct {
+        pthread_mutex_t lock;
+        pthread_cond_t ready;
+        int done;
+        int result;
+} KUI_EVENT_ACK;
+
+static void kui_render_page_owned(void);
+static void kui_handle_event(const ui_event_t *event);
+static int kui_post_event_sync(ui_event_t *event);
+static void kui_dispatch_events(void);
 
 /* ------------------------------------------------------------------------ */
 /* Low-level terminal helpers                                               */
@@ -618,54 +635,223 @@ static void kui_input_anchor(void) {
         fflush(stdout);
 }
 
-// @@ Synchronous event consumption; Phase 4 moves this pump to a dedicated thread.
+// @@ Every terminal-writing operation is serialized by the renderer.
+// The existing one-thread fallback remains available if pthread_create fails.
+static int kui_is_renderer(void) {
+        return KUI_RENDER_RUNNING == ISTRUE
+                && pthread_equal(pthread_self(), KUI_RENDER_THREAD);
+}
+
+static void kui_ack_event(KUI_EVENT_ACK *ack, int result) {
+        if (!ack) return;
+        pthread_mutex_lock(&ack->lock);
+        ack->result = result;
+        ack->done = ISTRUE;
+        pthread_cond_signal(&ack->ready);
+        pthread_mutex_unlock(&ack->lock);
+}
+
+static void kui_handle_event(const ui_event_t *event) {
+        int result = 0;
+        if (!event) return;
+        switch (event->type) {
+                case UI_EVENT_OUTPUT:
+                        kui_sink_line(event->output);
+                        break;
+                case UI_EVENT_SCROLL:
+                        if (g_prog_data) {
+                                kui_scrollback_scroll_by(&g_prog_data->kui_scrollback,
+                                        event->scroll_rows);
+                                kui_render_page_owned();
+                        }
+                        break;
+                case UI_EVENT_INPUT:
+                        snprintf(KUI_INPUT_TEXT, sizeof(KUI_INPUT_TEXT), "%s", event->input);
+                        snprintf(KUI_INPUT_PROMPT, sizeof(KUI_INPUT_PROMPT), "%s", event->prompt);
+                        KUI_INPUT_CURSOR = event->cursor;
+                        if (KUI_INPUT_ACTIVE == ISTRUE)
+                                kui_input_draw(KUI_INPUT_PROMPT, KUI_INPUT_TEXT,
+                                        (int)KUI_INPUT_CURSOR);
+                        break;
+                case UI_EVENT_RENDER:
+                        kui_render_page_owned();
+                        break;
+                case UI_EVENT_INPUT_BEGIN:
+                        KUI_INPUT_ACTIVE = ISTRUE;
+                        KUI_INPUT_DIRTY = ISTRUE;
+                        kui_input_anchor();
+                        break;
+                case UI_EVENT_INPUT_END:
+                        KUI_INPUT_ACTIVE = ISFALSE;
+                        KUI_INPUT_DIRTY = ISTRUE;
+                        break;
+                case UI_EVENT_BELL:
+                        (void)write(STDOUT_FILENO, "\a", 1);
+                        break;
+                case UI_EVENT_FRAME_START:
+                        if (g_prog_data) {
+                                g_prog_data->log_frame_start = ISTRUE;
+                                KUI_FRAME_START_SEQUENCE = KUI_OUTPUT_SEQUENCE;
+                                g_prog_data->kui_scrollback.view_offset = 0;
+                        }
+                        break;
+                case UI_EVENT_CLEAR:
+                        if (g_prog_data) {
+                                kui_scrollback_init(&g_prog_data->kui_scrollback);
+                                ui_wrap_index_reset(&KUI_WRAP_INDEX);
+                                KUI_VIEW_MAX_OFF = 0;
+                                KUI_OUTPUT_SEQUENCE = 0;
+                                KUI_FRAME_START_SEQUENCE = 0;
+                                ui_screen_invalidate(&KUI_SCREEN);
+                        }
+                        break;
+                case UI_EVENT_FLUSH:
+                        if (g_prog_data && g_prog_data->log)
+                                fflush((FILE *)g_prog_data->log);
+                        break;
+                case UI_EVENT_CHURNING:
+                        snprintf(KUI_CHURNING, sizeof(KUI_CHURNING), "%s", event->output);
+                        KUI_CHURNING_ACTIVE = ISTRUE;
+                        break;
+                case UI_EVENT_CHURNING_CLEAR:
+                        memset(KUI_CHURNING, 0, sizeof(KUI_CHURNING));
+                        KUI_CHURNING_ACTIVE = ISFALSE;
+                        break;
+                case UI_EVENT_MODE:
+                        if (event->value != KUI_DISPLAY_CONTINUOUS
+                                && event->value != KUI_DISPLAY_FRAME) {
+                                result = -1;
+                                break;
+                        }
+                        KUI_DISPLAY_MODE = (kui_display_mode_t)event->value;
+                        KUI_VIEW_MAX_OFF = 0;
+                        if (g_prog_data)
+                                g_prog_data->kui_scrollback.view_offset = 0;
+                        ui_screen_invalidate(&KUI_SCREEN);
+                        break;
+                case UI_EVENT_MODE_GET:
+                        result = (int)KUI_DISPLAY_MODE;
+                        break;
+                case UI_EVENT_MOUSE:
+                        if (event->value == ISTRUE) kui_mouse_enable();
+                        else kui_mouse_disable();
+                        break;
+                case UI_EVENT_STOP:
+                        break;
+                default:
+                        result = -1;
+                        break;
+        }
+        kui_ack_event((KUI_EVENT_ACK *)event->completion, result);
+}
+
 static void kui_dispatch_events(void) {
         ui_event_t event;
+        if (KUI_RENDER_RUNNING == ISTRUE) return;
         if (KUI_PUMPING == ISTRUE) return;
         KUI_PUMPING = ISTRUE;
-        while (ui_events_next(&event)) {
-                switch (event.type) {
-                        case UI_EVENT_OUTPUT:
-                                kui_sink_line(event.output);
-                                break;
-                        case UI_EVENT_SCROLL:
-                                if (g_prog_data) {
-                                        kui_scrollback_scroll_by(
-                                                &g_prog_data->kui_scrollback,
-                                                event.scroll_rows
-                                        );
-                                        kui_render_page();
-                                }
-                                break;
-                        case UI_EVENT_INPUT:
-                                snprintf(KUI_INPUT_TEXT, sizeof(KUI_INPUT_TEXT), "%s", event.input);
-                                snprintf(KUI_INPUT_PROMPT, sizeof(KUI_INPUT_PROMPT), "%s", event.prompt);
-                                KUI_INPUT_CURSOR = event.cursor;
-                                if (KUI_INPUT_ACTIVE == ISTRUE)
-                                        kui_input_draw(KUI_INPUT_PROMPT, KUI_INPUT_TEXT, (int)KUI_INPUT_CURSOR);
-                                break;
-                        default:
-                                break;
-                }
-        }
+        while (ui_events_next(&event) == 1)
+                kui_handle_event(&event);
         KUI_PUMPING = ISFALSE;
 }
 
-// @@ Drain when full. The synchronous Phase 1 transport never drops events.
-static void kui_post_event(const ui_event_t *event) {
-        if (ui_events_post(event) == 0) return;
-        kui_dispatch_events();
-        if (ui_events_post(event) != 0) {
-                // This should be unreachable with one synchronous producer.
-                FILE *fp = g_prog_data ? (FILE *)g_prog_data->log : NULL;
-                if (fp) fprintf(fp, "[x] KUI event queue overflow.\n");
+// @@ Synchronous requests provide an ordering barrier for runtime logging,
+// banner snapshots, state transitions and terminal handoff.
+static int kui_post_event_sync(ui_event_t *event) {
+        KUI_EVENT_ACK ack;
+        int result;
+        if (!event) return -1;
+        if (KUI_RENDER_RUNNING != ISTRUE || kui_is_renderer()) {
+                event->completion = NULL;
+                kui_handle_event(event);
+                return 0;
         }
+        if (pthread_mutex_init(&ack.lock, NULL) != 0) return -1;
+        if (pthread_cond_init(&ack.ready, NULL) != 0) {
+                pthread_mutex_destroy(&ack.lock);
+                return -1;
+        }
+        ack.done = ISFALSE;
+        ack.result = -1;
+        event->completion = &ack;
+        if (ui_events_post_wait(event) != 0) {
+                pthread_cond_destroy(&ack.ready);
+                pthread_mutex_destroy(&ack.lock);
+                return -1;
+        }
+        pthread_mutex_lock(&ack.lock);
+        while (ack.done != ISTRUE)
+                pthread_cond_wait(&ack.ready, &ack.lock);
+        result = ack.result;
+        pthread_mutex_unlock(&ack.lock);
+        pthread_cond_destroy(&ack.ready);
+        pthread_mutex_destroy(&ack.lock);
+        return result;
+}
+
+static void kui_post_event(const ui_event_t *event) {
+        ui_event_t copy;
+        if (!event) return;
+        copy = *event;
+        copy.completion = NULL;
+        if (KUI_RENDER_RUNNING != ISTRUE) {
+                if (ui_events_post(&copy) != 0) {
+                        kui_dispatch_events();
+                        if (ui_events_post(&copy) != 0)
+                                kui_handle_event(&copy);
+                }
+                kui_dispatch_events();
+                return;
+        }
+        (void)ui_events_post_wait(&copy);
+}
+
+static void *kui_render_thread_main(void *unused) {
+        ui_event_t event;
+        (void)unused;
+        while (ui_events_wait_next(&event) == 1) {
+                int stop = event.type == UI_EVENT_STOP;
+                kui_handle_event(&event);
+                if (stop) break;
+        }
+        return NULL;
+}
+
+static int kui_render_thread_start(void) {
+        if (KUI_RENDER_RUNNING == ISTRUE) return 0;
+        ui_events_reset();
+        KUI_RENDER_RUNNING = ISTRUE;
+        if (pthread_create(&KUI_RENDER_THREAD, NULL,
+                        kui_render_thread_main, NULL) != 0) {
+                KUI_RENDER_RUNNING = ISFALSE;
+                return -1;
+        }
+        return 0;
+}
+
+// @@ Joining before fork keeps pthread mutexes/stdio out of the child.
+static void kui_render_thread_stop(void) {
+        ui_event_t event = {0};
+        if (KUI_RENDER_RUNNING != ISTRUE) return;
+        event.type = UI_EVENT_STOP;
+        (void)kui_post_event_sync(&event);
+        (void)pthread_join(KUI_RENDER_THREAD, NULL);
+        KUI_RENDER_RUNNING = ISFALSE;
+        ui_events_reset();
+}
+
+void kui_fork_prepare(void) {
+        kui_render_thread_stop();
+}
+
+void kui_fork_parent(void) {
+        if (g_prog_data) (void)kui_render_thread_start();
 }
 
 void kui_input_begin(void) {
-        KUI_INPUT_ACTIVE = ISTRUE;
-        KUI_INPUT_DIRTY = ISTRUE;
-        kui_input_anchor();
+        ui_event_t event = {0};
+        event.type = UI_EVENT_INPUT_BEGIN;
+        (void)kui_post_event_sync(&event);
 }
 
 void kui_input_update(const char *prompt, const char *input, unsigned int cursor) {
@@ -674,13 +860,13 @@ void kui_input_update(const char *prompt, const char *input, unsigned int cursor
         if (prompt) snprintf(event.prompt, sizeof(event.prompt), "%s", prompt);
         if (input) snprintf(event.input, sizeof(event.input), "%s", input);
         event.cursor = cursor;
-        kui_post_event(&event);
-        kui_dispatch_events();
+        (void)kui_post_event_sync(&event);
 }
 
 void kui_input_end(void) {
-        KUI_INPUT_ACTIVE = ISFALSE;
-        KUI_INPUT_DIRTY = ISTRUE;
+        ui_event_t event = {0};
+        event.type = UI_EVENT_INPUT_END;
+        (void)kui_post_event_sync(&event);
 }
 
 void kui_input_scroll(int rows) {
@@ -688,7 +874,6 @@ void kui_input_scroll(int rows) {
         event.type = UI_EVENT_SCROLL;
         event.scroll_rows = rows;
         kui_post_event(&event);
-        kui_dispatch_events();
 }
 
 void kui_input_refresh_page(void) {
@@ -696,7 +881,16 @@ void kui_input_refresh_page(void) {
 }
 
 void kui_input_bell(void) {
-        (void)write(STDOUT_FILENO, "\a", 1);
+        ui_event_t event = {0};
+        event.type = UI_EVENT_BELL;
+        (void)kui_post_event_sync(&event);
+}
+
+void kui_mouse_capture_set(int enabled) {
+        ui_event_t event = {0};
+        event.type = UI_EVENT_MOUSE;
+        event.value = enabled ? ISTRUE : ISFALSE;
+        (void)kui_post_event_sync(&event);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -719,7 +913,7 @@ static void kui_render_small(unsigned rows, unsigned cols) {
         (void)write(STDOUT_FILENO, ANSI_CURSOR_SHOW, strlen(ANSI_CURSOR_SHOW));
 }
 
-void kui_render_page(void) {
+static void kui_render_page_owned(void) {
         unsigned rows, cols, old_rows, old_cols, content_top, content_bottom, prompt_row;
         int8_t first_time, size_changed;
         int banner_rows;
@@ -802,6 +996,16 @@ void kui_render_page(void) {
                 kui_input_anchor();
                 kui_input_draw(KUI_INPUT_PROMPT, KUI_INPUT_TEXT, (int)KUI_INPUT_CURSOR);
         }
+}
+
+void kui_render_page(void) {
+        ui_event_t event = {0};
+        if (KUI_RENDER_RUNNING != ISTRUE || kui_is_renderer()) {
+                kui_render_page_owned();
+                return;
+        }
+        event.type = UI_EVENT_RENDER;
+        (void)kui_post_event_sync(&event);
 }
 
 /* ------------------------------------------------------------------------ */
