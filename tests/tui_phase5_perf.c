@@ -32,6 +32,7 @@ int main(void) {
         assert(ui_screen_begin(screen, 48, 120, 4, 47) == 0);
         assert(ui_screen_set(screen, 4, "static", 6, "", 0) == 0);
         assert(ui_screen_commit(screen) == 0 && screen->dirty_rows == 44);
+        assert(screen->write_calls == 44);
 
         struct timespec start, stop;
         assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
@@ -42,6 +43,7 @@ int main(void) {
                 assert(screen->dirty_rows == 0);
         }
         assert(clock_gettime(CLOCK_MONOTONIC, &stop) == 0);
+        assert(screen->write_calls == 44);
         printf("Idle virtual frames: %d; dirty rows: 0; elapsed: %ld us\n",
                 PERF_FRAMES, elapsed_us(start, stop));
 
@@ -56,6 +58,9 @@ int main(void) {
                 assert(screen->dirty_rows == 1);
         }
         assert(clock_gettime(CLOCK_MONOTONIC, &stop) == 0);
+        assert(screen->write_calls == 44 + PERF_FRAMES);
+        printf("Terminal row writes: %llu; bytes: %llu\n",
+                screen->write_calls, screen->bytes_written);
         printf("Single-row virtual frames: %d; elapsed: %ld us\n",
                 PERF_FRAMES, elapsed_us(start, stop));
         ui_screen_destroy(screen);
