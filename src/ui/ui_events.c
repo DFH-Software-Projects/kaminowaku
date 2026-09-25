@@ -65,6 +65,25 @@ int ui_events_post_wait(const ui_event_t *event) {
         return 0;
 }
 
+// @@ The final barrier and close are one mutex-protected transition.
+// Producers that race with shutdown either precede this barrier or fail.
+int ui_events_post_and_close(const ui_event_t *event) {
+        if (!event) return -1;
+        pthread_mutex_lock(&UI_EVENT_LOCK);
+        while (!UI_EVENT_CLOSED && UI_EVENT_COUNT == UI_EVENT_CAPACITY)
+                pthread_cond_wait(&UI_EVENT_SPACE, &UI_EVENT_LOCK);
+        if (UI_EVENT_CLOSED) {
+                pthread_mutex_unlock(&UI_EVENT_LOCK);
+                return -1;
+        }
+        ui_events_push_locked(event);
+        UI_EVENT_CLOSED = 1;
+        pthread_cond_broadcast(&UI_EVENT_AVAILABLE);
+        pthread_cond_broadcast(&UI_EVENT_SPACE);
+        pthread_mutex_unlock(&UI_EVENT_LOCK);
+        return 0;
+}
+
 int ui_events_next(ui_event_t *event) {
         int result = 0;
         if (!event) return -1;
