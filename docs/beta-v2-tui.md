@@ -1,6 +1,6 @@
 # Beta V2 — TUI architecture and display modes
 
-Status: Phase 1 event-boundary implementation in progress. The existing full-page renderer remains active; threaded rendering and display modes are not yet implemented.
+Status: Phases 1 and 2 implemented on beta-v2. The renderer remains synchronous and scrollback layout is still recomputed per page; indexed navigation and display-mode switching are Phase 3 work.
 
 ## Objectives
 
@@ -74,3 +74,20 @@ Keep targeted Phase 1 Linux queue and input tests during development. Consolidat
 - `tests/test-tui-events.sh` builds the event test against the actual source tree without changing the primary Makefile. Run with `sh tests/test-tui-events.sh`.
 - `.github/workflows/beta-v2-linux.yml` is branch-scoped and attempts the unit regression followed by a Linux `make OPENSSL_MODE=online` smoke build on each relevant push.
 - Initial local Linux checks used a standalone queue harness compiled with AddressSanitizer and UndefinedBehaviorSanitizer, plus a prompt-painter compile/output harness. The full application binary and the GitHub Actions result still require separate confirmation. These checks are not substitutes for Phase 5 cross-platform and PTY tests.
+
+## Phase 2 implementation notes
+
+- Added `src/ui/ui_screen.h` and `src/ui/ui_screen.c`. The virtual screen retains current and desired physical rows, resets the desired content window for each frame, compares row text and incoming ANSI style, and paints only changed rows. Terminal writes are retry-safe for `EINTR` and partial writes.
+- Reworked scrollback painting in `kui.c` to stage wrapped segments as rows instead of issuing separate writes for every glyph. The existing UTF-8-aware wrapping routine is retained; the renderer reconstructs active SGR sequences when a visible physical row starts in the middle of a styled logical line.
+- Removed the banner's unconditional clear-to-end-of-screen operation. Its own header-row diff is still intact, and cursor visibility is now controlled by KUI.
+- The input prompt uses the terminal's last physical row. KUI caches the last rendered input text and viewport; cursor-only movements reposition the cursor without repainting the line.
+- Ordinary terminal shrinking no longer issues `ESC c` (terminal reset). Screen buffers and the banner invalidate on geometry changes; the small-terminal presentation clears only on entry to that state.
+- A failure to stage a desired screen falls back to the legacy per-row writer for that frame.
+- The existing frame-by-frame behavior is retained intentionally. Continuous scrollback, wrap indexing, anchoring and the display-mode command are Phase 3 work; dedicated threads and PTY terminal handoff remain later phases.
+
+### Phase 2 verification
+
+- `tests/tui_phase2_screen.c` tests identical-frame elimination, one-row repaint, stale-row clearing, width-change invalidation, ANSI styling and invalid row rejection.
+- `tests/test-tui-screen.sh` compiles and runs the standalone screen regression. The Phase 2 test was also run locally on Linux with AddressSanitizer and UndefinedBehaviorSanitizer.
+- `.github/workflows/beta-v2-linux.yml` includes both Phase 1 and Phase 2 standalone regressions and attempts a full Linux smoke build. The full application build and interactive terminal behavior have **not** been independently verified in this environment; FreeBSD validation remains deferred.
+- Phase 5 will consolidate temporary harnesses and remove test products from the repository; retain durable UI regression coverage.
