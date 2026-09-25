@@ -5,7 +5,7 @@
 
 enum {
         KIO_ST_NORMAL = 0, KIO_ST_ESCAPE, KIO_ST_CSI,
-        KIO_ST_X10, KIO_ST_OSC, KIO_ST_OSC_ESCAPE
+        KIO_ST_X10, KIO_ST_OSC, KIO_ST_OSC_ESCAPE, KIO_ST_DISCARD_CSI
 };
 
 static KIO_TOKEN kio_token(KIO_TOKEN_TYPE type, unsigned char ch, int wheel) {
@@ -105,13 +105,18 @@ KIO_TOKEN kio_decoder_feed(KIO_DECODER *decoder, unsigned char byte) {
                                         return kio_token(KIO_TOKEN_WHEEL, 0, -1);
                         }
                         return result;
+                case KIO_ST_DISCARD_CSI:
+                        if (byte >= 0x40 && byte <= 0x7e)
+                                decoder->state = KIO_ST_NORMAL;
+                        return result;
                 case KIO_ST_CSI:
                         if (decoder->length == 0 && byte == 'M' && !decoder->paste) {
                                 decoder->state = KIO_ST_X10;
                                 return result;
                         }
                         if (decoder->length >= sizeof(decoder->buffer) - 1) {
-                                kio_decoder_timeout(decoder);
+                                decoder->state = KIO_ST_DISCARD_CSI;
+                                decoder->length = 0;
                                 return result;
                         }
                         decoder->buffer[decoder->length++] = byte;
