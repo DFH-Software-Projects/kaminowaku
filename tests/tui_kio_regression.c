@@ -1,6 +1,5 @@
 // Copyright 2026 Jamison A. Drapeau
 // @@ Exercise KIO itself, including the unread tail between read_line calls.
-#define _DEFAULT_SOURCE
 #include "kio.h"
 #include "kui.h"
 #include <assert.h>
