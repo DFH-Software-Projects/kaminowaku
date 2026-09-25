@@ -88,7 +88,7 @@ int ui_screen_set(UI_SCREEN *screen, unsigned int row, const char *text,
                 || style_len >= UI_SCREEN_MAX_STYLE_BYTES) return -1;
         target = &screen->desired[row - 1];
         if (text_len) memcpy(target->text, text, text_len);
-        if (style_len) memcpy(target->style, style_len);
+        if (style_len) memcpy(target->style, style, style_len);
         target->text[text_len] = '\0';
         target->style[style_len] = '\0';
         target->text_len = text_len;
