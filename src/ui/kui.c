@@ -762,9 +762,16 @@ static int kui_post_event_sync(ui_event_t *event) {
         int result;
         if (!event) return -1;
         if (KUI_RENDER_RUNNING != ISTRUE || kui_is_renderer()) {
+                int direct_result = 0;
                 event->completion = NULL;
-                kui_handle_event(event);
-                return 0;
+                if (event->type == UI_EVENT_MODE_GET)
+                        return (int)KUI_DISPLAY_MODE;
+                if (event->type == UI_EVENT_MODE
+                        && event->value != KUI_DISPLAY_CONTINUOUS
+                        && event->value != KUI_DISPLAY_FRAME)
+                        direct_result = -1;
+                if (direct_result == 0) kui_handle_event(event);
+                return direct_result;
         }
         if (pthread_mutex_init(&ack.lock, NULL) != 0) return -1;
         if (pthread_cond_init(&ack.ready, NULL) != 0) {
@@ -1013,7 +1020,7 @@ void kui_render_page(void) {
 /* ------------------------------------------------------------------------ */
 
 void kui_enter(_carry_forward * _prog_data) {
-	if (_prog_data && !g_prog_data) g_prog_data = _prog_data;
+        if (_prog_data && !g_prog_data) g_prog_data = _prog_data;
         ui_events_reset();
         ui_wrap_index_reset(&KUI_WRAP_INDEX);
         KUI_VIEW_MAX_OFF = 0;
@@ -1027,44 +1034,48 @@ void kui_enter(_carry_forward * _prog_data) {
                 KUI_SCREEN_READY = ISTRUE;
         memset(KUI_CHURNING, 0x00, sizeof(KUI_CHURNING));
         KUI_CHURNING_ACTIVE = ISFALSE;
-	kui_mouse_enable();
-	(void)write(STDOUT_FILENO, ANSI_ALT_SCREEN_ON, strlen(ANSI_ALT_SCREEN_ON));
-	(void)write(STDOUT_FILENO, ANSI_CURSOR_HIDE, strlen(ANSI_CURSOR_HIDE));
-	(void)write(STDOUT_FILENO, ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME, sizeof(ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME) - 1);
-	banner_reset();
-	fflush(stdout);
+
+        // @@ Initial alternate-screen transition precedes renderer thread ownership.
+        kui_mouse_enable();
+        (void)write(STDOUT_FILENO, ANSI_ALT_SCREEN_ON, strlen(ANSI_ALT_SCREEN_ON));
+        (void)write(STDOUT_FILENO, ANSI_CURSOR_HIDE, strlen(ANSI_CURSOR_HIDE));
+        (void)write(STDOUT_FILENO, ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME,
+                sizeof(ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME) - 1);
+        banner_reset();
+        fflush(stdout);
+        (void)kui_render_thread_start();
 }
 
 void kui_exit(void) {
+        // @@ Drain all accepted output before closing logs or restoring the shell.
+        kui_render_thread_stop();
         kui_dispatch_events();
         KUI_INPUT_ACTIVE = ISFALSE;
         KUI_SCREEN_ACTIVE = ISFALSE;
         ui_screen_destroy(&KUI_SCREEN);
         KUI_SCREEN_READY = ISFALSE;
-	if (g_prog_data) {
-		FILE * fp = (FILE *)g_prog_data->log;
-		if (fp) fflush(fp);
-		g_prog_data = NULL;
-	}
+        if (g_prog_data) {
+                FILE *fp = (FILE *)g_prog_data->log;
+                if (fp) fflush(fp);
+                g_prog_data = NULL;
+        }
         memset(KUI_CHURNING, 0x00, sizeof(KUI_CHURNING));
         KUI_CHURNING_ACTIVE = ISFALSE;
-	kui_mouse_disable();
-	kui_reset_scroll_region();
-	(void)write(STDOUT_FILENO, ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME, sizeof(ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME) - 1);
-	(void)write(STDOUT_FILENO, ANSI_CURSOR_SHOW, strlen(ANSI_CURSOR_SHOW));
-	(void)write(STDOUT_FILENO, ANSI_ALT_SCREEN_OFF, strlen(ANSI_ALT_SCREEN_OFF));
-	fflush(stdout);
+        kui_mouse_disable();
+        kui_reset_scroll_region();
+        (void)write(STDOUT_FILENO, ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME,
+                sizeof(ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME) - 1);
+        (void)write(STDOUT_FILENO, ANSI_CURSOR_SHOW, strlen(ANSI_CURSOR_SHOW));
+        (void)write(STDOUT_FILENO, ANSI_ALT_SCREEN_OFF, strlen(ANSI_ALT_SCREEN_OFF));
+        fflush(stdout);
+        ui_events_close();
 }
 
 void kui_scrollback_reset(void) {
-        kui_dispatch_events();
-	if (!g_prog_data) return;
-	kui_scrollback_init(&g_prog_data->kui_scrollback);
-        ui_wrap_index_reset(&KUI_WRAP_INDEX);
-        KUI_VIEW_MAX_OFF = 0;
-        KUI_OUTPUT_SEQUENCE = 0;
-        KUI_FRAME_START_SEQUENCE = 0;
-        ui_screen_invalidate(&KUI_SCREEN);
+        ui_event_t event = {0};
+        if (!g_prog_data) return;
+        event.type = UI_EVENT_CLEAR;
+        (void)kui_post_event_sync(&event);
 }
 
 static unsigned int kui_scrollback_max_off(const KUI_SCROLLBACK *sb) {
@@ -1082,15 +1093,27 @@ static void kui_scrollback_set_view_offset(KUI_SCROLLBACK *sb, unsigned int new_
 
 void kui_scrollback_scroll_by(KUI_SCROLLBACK *sb, int delta) {
         unsigned int max_off;
-        int cur;
         int next;
         if (!sb) return;
+        if (KUI_RENDER_RUNNING == ISTRUE && !kui_is_renderer()) {
+                ui_event_t event = {0};
+                if (g_prog_data && sb == &g_prog_data->kui_scrollback) {
+                        event.type = UI_EVENT_SCROLL;
+                        event.scroll_rows = delta;
+                        (void)kui_post_event_sync(&event);
+                }
+                return;
+        }
         max_off = kui_scrollback_max_off(sb);
-        cur = (int)sb->view_offset;
-        next = cur + delta;
-        if (next < 0) next = 0;
-        if (next > (int)max_off) next = (int)max_off;
-        sb->view_offset = (unsigned int)next;
+        if (delta >= 0) {
+                unsigned int amount = (unsigned int)delta;
+                sb->view_offset = amount > max_off - (sb->view_offset > max_off
+                        ? max_off : sb->view_offset) ? max_off
+                        : sb->view_offset + amount;
+                return;
+        }
+        next = (int)sb->view_offset + delta;
+        sb->view_offset = next > 0 ? (unsigned int)next : 0;
 }
 
 void kui_clear_output(void) {
@@ -1104,11 +1127,9 @@ static void kui_add_vfmt(int do_render, const char *fmt, va_list ap) {
         if (!g_prog_data || !fmt) return;
         event.type = UI_EVENT_OUTPUT;
         (void)vsnprintf(event.output, sizeof(event.output), fmt, ap);
-        kui_post_event(&event);
-        // @@ Preserve immediate log ordering while rendering remains deferred.
-        kui_dispatch_events();
-        if (do_render)
-                kui_render_page();
+        // @@ A barrier preserves log order relative to direct command logging.
+        (void)kui_post_event_sync(&event);
+        if (do_render) kui_render_page();
 }
 
 void kui_add_line(const char *fmt, ...) {
@@ -1128,46 +1149,47 @@ void kui_add_line_and_render(const char *fmt, ...) {
 }
 
 void kui_set_churning(const char *fmt, ...) {
+        ui_event_t event = {0};
         va_list ap;
         if (!fmt) return;
-        memset(KUI_CHURNING, 0x00, sizeof(KUI_CHURNING));
+        event.type = UI_EVENT_CHURNING;
         va_start(ap, fmt);
-        (void)vsnprintf(KUI_CHURNING, sizeof(KUI_CHURNING), fmt, ap);
+        (void)vsnprintf(event.output, sizeof(event.output), fmt, ap);
         va_end(ap);
-        KUI_CHURNING_ACTIVE = ISTRUE;
+        (void)kui_post_event_sync(&event);
 }
 
 void kui_clear_churning(void) {
-        memset(KUI_CHURNING, 0x00, sizeof(KUI_CHURNING));
-        KUI_CHURNING_ACTIVE = ISFALSE;
+        ui_event_t event = {0};
+        event.type = UI_EVENT_CHURNING_CLEAR;
+        (void)kui_post_event_sync(&event);
 }
 
 void kui_flush_log(void) {
-        kui_dispatch_events();
-	if (!g_prog_data) return;
-        FILE *fp;
-	fp = (FILE *)g_prog_data->log;
-	if (fp) fflush(fp);
+        ui_event_t event = {0};
+        if (!g_prog_data) return;
+        event.type = UI_EVENT_FLUSH;
+        (void)kui_post_event_sync(&event);
 }
 
 void kui_frame_start(void) {
-        kui_dispatch_events();
+        ui_event_t event = {0};
         if (!g_prog_data) return;
-        g_prog_data->log_frame_start = ISTRUE;
-        KUI_FRAME_START_SEQUENCE = KUI_OUTPUT_SEQUENCE;
-        g_prog_data->kui_scrollback.view_offset = 0;
+        event.type = UI_EVENT_FRAME_START;
+        (void)kui_post_event_sync(&event);
 }
 
 kui_display_mode_t kui_display_mode_get(void) {
-        return KUI_DISPLAY_MODE;
+        ui_event_t event = {0};
+        event.type = UI_EVENT_MODE_GET;
+        return (kui_display_mode_t)kui_post_event_sync(&event);
 }
 
 int kui_display_mode_set(kui_display_mode_t mode) {
+        ui_event_t event = {0};
         if (mode != KUI_DISPLAY_CONTINUOUS && mode != KUI_DISPLAY_FRAME)
                 return -1;
-        KUI_DISPLAY_MODE = mode;
-        KUI_VIEW_MAX_OFF = 0;
-        if (g_prog_data) g_prog_data->kui_scrollback.view_offset = 0;
-        ui_screen_invalidate(&KUI_SCREEN);
-        return 0;
+        event.type = UI_EVENT_MODE;
+        event.value = mode;
+        return kui_post_event_sync(&event);
 }
