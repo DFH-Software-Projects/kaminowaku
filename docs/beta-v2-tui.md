@@ -1,6 +1,6 @@
 # Beta V2 — TUI architecture and display modes
 
-Status: Phases 1–3 implemented on beta-v2, pending full-application integration verification. Rendering and command execution are still synchronous; the dedicated renderer thread and external PTY handoff remain later-phase work.
+Status: Phases 1–3 implemented on beta-v2; Phase 4's thread-safe queue and stress test have been added, but the dedicated renderer and asynchronous command worker are not activated. Full-application integration verification and FreeBSD remain outstanding.
 
 ## Objectives
 
@@ -106,3 +106,15 @@ Keep targeted Phase 1 Linux queue and input tests during development. Consolidat
 - `tests/tui_phase3_wrap_index.c` covers append, resize, full-ring eviction and binary-search row lookup. The standalone index test passed locally on Linux with AddressSanitizer and UndefinedBehaviorSanitizer against the available compatible local scrollback definition; branch CI compiles against the current 16,384-line definition.
 - `tests/test-tui-wrap-index.sh` and the beta-v2 Linux workflow include the index regression. Full application build, interactive mode switching, continuous scrollback under heavy scan output and native FreeBSD testing still require confirmation.
 - Temporary tests and generated outputs are subject to the Phase 5 cleanup decision; keep permanent regressions where practical.
+
+## Phase 4 foundation (not yet active)
+
+- `src/ui/ui_events.c` now uses a POSIX mutex and condition variables. It preserves ordered, copied events and provides nonblocking posting, blocking backpressure for workers, waiting consumption, queue-draining close and a reset suitable for startup after all threads have joined.
+- Existing KUI event consumption is **still synchronous**. Do not spawn a renderer thread until every terminal-writing pathway (including progress rendering and PTY handoff) is assigned an owner and the full build is verified. The current `kui_post_event()` full-queue fallback drains events in the calling thread; replace this with producer backpressure before activating concurrency.
+- `tests/tui_phase4_queue.c` and `tests/test-tui-thread-queue.sh` stress 30,000 FIFO events with one producer and one consumer, bounded backpressure, drain-after-close and queue reset. The equivalent standalone queue test passed locally on Linux under AddressSanitizer and UndefinedBehaviorSanitizer; branch CI includes the regression and full-build smoke attempt.
+- Before enabling the worker threads: finish banner/input snapshot ownership, make shutdown drain logs before closing streams, ensure PTY tools and processes fork safely, and instrument event backlog and render latency. Validate under a real pseudo-terminal on Linux, then FreeBSD.
+
+## Phase 5 cleanup inventory
+
+- Review all `tests/tui_phase*.c` and `tests/test-tui-*.sh`; retain stable regressions in a consolidated suite and delete obsolete one-off harnesses.
+- Remove generated objects, binaries and temporary staging outputs; preserve release documentation if it materially helps maintainers.
