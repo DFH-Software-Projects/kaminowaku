@@ -849,10 +849,8 @@ int tool_pty_run(
                 saved_terminal_valid
         );
 
-        // @@ Flush the final partial status even when the last output burst
-        // was below the visual throttle interval.
-        tool_pty_stream_status(tool_name, &stream);
-        kui_render_page();
+        // @@ The raw output and final partial line have already been saved.
+        // A single final paint clears the status indicator.
         kui_clear_churning();
         kui_render_page();
         kui_processing_end();
