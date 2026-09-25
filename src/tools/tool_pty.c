@@ -604,8 +604,12 @@ int tool_pty_run(
         kui_render_page();
         kui_processing_begin();
 
+        // @@ Stop and join the renderer before fork: no pthread-owned
+        // terminal, stdio or queue locks may be inherited by the child.
+        kui_fork_prepare();
         fflush(NULL);
         child = fork();
+        if (child != 0) kui_fork_parent();
         if (child < 0) {
                 if (resize_action_valid == ISTRUE) {
                         (void)sigaction(SIGWINCH, &old_resize_action, NULL);
