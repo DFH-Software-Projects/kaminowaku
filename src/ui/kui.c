@@ -57,6 +57,9 @@ static int KUI_SCREEN_ACTIVE = ISFALSE;
 static int KUI_SCREEN_FAILED = ISFALSE;
 static UI_WRAP_INDEX KUI_WRAP_INDEX;
 static unsigned int KUI_VIEW_MAX_OFF = 0;
+static kui_display_mode_t KUI_DISPLAY_MODE = KUI_DISPLAY_CONTINUOUS;
+static uint64_t KUI_OUTPUT_SEQUENCE = 0;
+static uint64_t KUI_FRAME_START_SEQUENCE = 0;
 
 /* ------------------------------------------------------------------------ */
 /* Low-level terminal helpers                                               */
@@ -776,6 +779,9 @@ void kui_enter(_carry_forward * _prog_data) {
         ui_events_reset();
         ui_wrap_index_reset(&KUI_WRAP_INDEX);
         KUI_VIEW_MAX_OFF = 0;
+        KUI_DISPLAY_MODE = KUI_DISPLAY_CONTINUOUS;
+        KUI_OUTPUT_SEQUENCE = 0;
+        KUI_FRAME_START_SEQUENCE = 0;
         KUI_INPUT_ACTIVE = ISFALSE;
         KUI_INPUT_DIRTY = ISTRUE;
         KUI_SMALL = ISFALSE;
@@ -818,6 +824,8 @@ void kui_scrollback_reset(void) {
 	kui_scrollback_init(&g_prog_data->kui_scrollback);
         ui_wrap_index_reset(&KUI_WRAP_INDEX);
         KUI_VIEW_MAX_OFF = 0;
+        KUI_OUTPUT_SEQUENCE = 0;
+        KUI_FRAME_START_SEQUENCE = 0;
         ui_screen_invalidate(&KUI_SCREEN);
 }
 
@@ -906,6 +914,22 @@ void kui_flush_log(void) {
 
 void kui_frame_start(void) {
         kui_dispatch_events();
-	if (!g_prog_data) return;
-	g_prog_data->log_frame_start = ISTRUE;
+        if (!g_prog_data) return;
+        g_prog_data->log_frame_start = ISTRUE;
+        KUI_FRAME_START_SEQUENCE = KUI_OUTPUT_SEQUENCE;
+        g_prog_data->kui_scrollback.view_offset = 0;
+}
+
+kui_display_mode_t kui_display_mode_get(void) {
+        return KUI_DISPLAY_MODE;
+}
+
+int kui_display_mode_set(kui_display_mode_t mode) {
+        if (mode != KUI_DISPLAY_CONTINUOUS && mode != KUI_DISPLAY_FRAME)
+                return -1;
+        KUI_DISPLAY_MODE = mode;
+        KUI_VIEW_MAX_OFF = 0;
+        if (g_prog_data) g_prog_data->kui_scrollback.view_offset = 0;
+        ui_screen_invalidate(&KUI_SCREEN);
+        return 0;
 }
