@@ -1,6 +1,6 @@
 # Beta V2 — TUI architecture and display modes
 
-Status: Phases 1–3 are implemented, and Phase 4 now starts a dedicated KUI rendering thread with synchronous command-to-UI barriers. Command execution remains on the application thread rather than on a separately spawned worker; input during long-running commands, full application integration and FreeBSD validation remain outstanding.
+Status: Phases 1–4 are implemented on beta-v2, with Phase 5 PTY throttling, retained regression tests and instrumentation added. The main command dispatcher remains intentionally synchronous. Full application integration, live scanner/PTY acceptance and FreeBSD validation are outstanding.
 
 ## Objectives
 
@@ -13,12 +13,12 @@ The renderer will support two views over the same ordered output stream:
 - **Continuous** (default): commands and their results accumulate in scrollback. The display follows the tail until the user navigates backward; incoming output must not dislodge a scrolled viewport.
 - **Frame**: preserve the existing one-command/one-frame experience. The active command's frame is displayed, and prior frames are not intermixed with the current view. Mode changes must not destroy recorded log output. Frame boundaries should be first-class data, rather than implemented by repeatedly resetting the scrollback store.
 
-Proposed command: `display mode continuous|frame` (name provisional; verify against existing context-specific `display` commands before implementation). A future persisted profile option may select the startup mode. Neither mode depends on debug status.
+Implemented command: `ui` reports the mode and `ui mode continuous|frame` changes it from any command context. Startup defaults to continuous. Display mode is independent of debug status and does not erase recorded output.
 
 ## Architecture
 
 1. **KIO** owns terminal input and converts keyboard, mouse, paste, and resize activity into structured events. Escape-sequence parsing must handle sequences split across reads.
-2. **Command worker** owns command parsing, state transitions, scan execution, and project/target mutations. Its output functions publish immutable, owned text records. Commands never write directly to the terminal.
+2. **Synchronous command dispatcher** retains the existing state machine, parsing, scanner scheduling, project/target mutations and execution on the main application thread. Its output functions publish owned UI records. We deliberately did not add a general-purpose command worker; scanner-level concurrency is outside the UI refactor and requires its own verification.
 3. **Ordered output sink** writes logs independently of the screen and preserves output/frame ordering under bursts. Terminal paint scheduling must not cause lost logs.
 4. **KUI event queue** transfers output, scroll, input snapshots, banner snapshots, resize, mode changes, and shutdown notifications. Specify bounded memory/backpressure and ownership for each payload.
 5. **Renderer thread** alone writes ANSI terminal sequences, keeps current and desired screen buffers, coalesces events, and paints only changed cells/rows.
@@ -37,8 +37,8 @@ Proposed command: `display mode continuous|frame` (name provisional; verify agai
 1. Establish exclusive terminal ownership; replace KIO's direct paint calls with viewport/input events. Keep current command execution synchronous during this step.
 2. Implement desired/current virtual-screen buffers, dirty regions, batched ANSI writes, and cursor restoration. Do not emit full terminal reset (ESC c) on ordinary shrink/resizes.
 3. Introduce indexed scrollback, separate viewport anchoring from logical-line count, and both display modes.
-4. Add the dedicated renderer thread and command worker with explicit start/stop and queue drain ordering.
-5. Integrate tools PTY handoff or terminal emulation deliberately; do not send arbitrary interactive PTY control bytes into ordinary scrollback.
+4. Add the dedicated renderer thread with explicit start/stop, ordered event delivery, synchronous state barriers and queue drain. Keep the command dispatcher synchronous.
+5. Preserve the existing tools PTY parser and raw artifact logging; join/restart KUI across fork, throttle visual refresh only, and validate terminal restore and resize. Do not pass arbitrary PTY control bytes into normal scrollback.
 
 Keep the existing KUI implementation available as a baseline until the replacement is validated on Linux and FreeBSD. Avoid changing network scanning and book behavior as part of the UI migration.
 
@@ -126,8 +126,8 @@ Keep targeted Phase 1 Linux queue and input tests during development. Consolidat
 - The renderer reads mutable banner state only during an explicit synchronous paint, when the calling application thread is blocked on the acknowledgment. Asynchronous scroll events occur in KIO's ordinary input loop, where command execution is not simultaneously active. Network subsystems with their own mutation threads remain a separate integration-verification concern.
 - `kui_guard.c` delegates mouse reporting to KUI instead of writing terminal escape codes independently.
 - `tool_pty.c` calls `kui_fork_prepare()` to drain and join the renderer before `fork()`, then `kui_fork_parent()` to restart it only in the parent. This prevents inheriting a live KUI pthread into the external-tool child. The shutdown path joins the renderer before freeing screen buffers, resetting mouse modes, restoring the terminal and closing the runtime log.
-- The application thread continues to execute existing `cmd_scan()` paths synchronously. A separately scheduled command worker and concurrent raw input navigation during scans are not yet enabled; don't claim Phase 4 is fully complete until those have been addressed or explicitly scoped out.
-- `tests/tui_phase4_handoff.c` covers an ordered 1,000-event drain, worker join, fork and second worker startup. A matching standalone Linux test of the event-transport source passed with ASan/UBSan; the full integrated KUI/PTTY build and behavior are still unverified.
+- The application thread continues executing `cmd_scan()` synchronously by design; the separate command worker was explicitly removed from scope. Accept that keyboard commands and manual scroll input may wait until a synchronous scan completes.
+- `tests/tui_phase4_handoff.c` covers an ordered 1,000-event drain, renderer join, fork and renderer restart. The isolated event-transport test passed locally with ASan/UBSan; the full KUI/PTTY runtime remains unverified.
 - The branch CI workflow now runs the Phase 1–4 standalone regressions followed by a Linux `make OPENSSL_MODE=online` smoke attempt. A successful CI run has not been independently confirmed here.
 
 ### Renderer shutdown ordering
@@ -135,3 +135,26 @@ Keep targeted Phase 1 Linux queue and input tests during development. Consolidat
 A render stop is enqueued by `ui_events_post_and_close()`: it atomically appends the final barrier and closes the producer side under the queue mutex. The renderer drains all preceding accepted events, acknowledges the stop, and is joined before the UI screen and runtime log are released. Late producers receive an error rather than posting behind STOP. On unexpectedly failed barrier initialization, the queue is closed and the renderer still joined.
 
 The standalone Linux handoff regression exercises the final barrier, late-producer rejection, drain/join, `fork()`, and restart under AddressSanitizer/UndefinedBehaviorSanitizer. This verifies event-transport lifecycle behavior but **not** a full running Kaminowaku/PTTY session. The PTY fork integration and FreeBSD toolchain must still pass their dedicated acceptance tests.
+
+## Phase 5 — PTY performance, diagnostics and test cleanup
+
+### Implemented
+
+- `tool_pty_stream_buffer()` commits every parsed output line normally and keeps the raw PTY `.out` artifact byte-for-byte independent of the display. Only `tool_pty_stream_status()` and `kui_render_page()` are rate-limited to approximately 30 visual updates per second, using `CLOCK_MONOTONIC`. The final status indicator is cleared with one last render, including when the final output burst is below the refresh interval.
+- Removed redundant `kui_processing_begin()` calls during PTY stream bursts. Renderer pre-fork join and parent restart remain explicit; the child does not inherit an active renderer.
+- Scroll events already at a viewport boundary no longer trigger a redundant page render. Output remains visible even if the optional runtime log stream is unavailable; when it exists, the log sink receives output before it is added to scrollback.
+- The event queue tracks a resettable high-water mark through `ui_events_high_watermark()`. The virtual screen counts cumulative emitted row writes and bytes to support targeted performance diagnostics.
+- Consolidated permanent regression entry point: `sh tests/run-tui-regressions.sh`; add `--bench` for compositor and maximum-scrollback measurements. Individual test scripts remain available, but they compile temporary binaries under `TMPDIR` with exit traps; transient local build artifacts are ignored. The branch CI now invokes the consolidated runner and builds the Linux application.
+- `tests/tui_phase5_pty.c` independently checks OS PTY fork/exec, resize, raw ANSI capture, byte-perfect artifact replay and termios restoration. `tests/tui_phase5_perf.c` measures 1,000 unchanged frames, 1,000 changed-row frames, 1,000 cached lookups over 16,384 logical lines and 1,000 ring evictions.
+
+### Linux test evidence and remaining release gates
+
+The isolated Linux PTY contract check passed under AddressSanitizer and UndefinedBehaviorSanitizer. A local compositor/index benchmark at 16,384 lines recorded zero dirty rows across 1,000 unchanged frames and exactly 1,000 dirty rows across 1,000 single-row changes; timings are diagnostic and machine-dependent. These checks exercise the underlying modules and PTY primitives, **not the complete integrated application**.
+
+Still requiring verification before merging `beta-v2` into `main`:
+
+1. Confirm the current branch's complete Linux build and run an interactive PTY integration session, including repeated external tools, abnormal exits, resize and terminal restoration.
+2. Exercise real built-in project and target scans and both display modes under sustained output; audit shared scanner counters read by the banner while scanner workers update them.
+3. Validate the FreeBSD build and run the same interactive acceptance suite on an actual FreeBSD terminal.
+4. Inspect GitHub Actions results and resolve any compiler or sanitizer findings. Retain the regression suite; remove any manually generated objects, binaries or staging files before release.
+5. Keep this design document until the Beta V2 release review. Its long-term retention in `docs/` is a separate documentation decision.
