@@ -6,6 +6,8 @@ on:
       - 'src/**'
       - 'tests/tui_phase1_events.c'
       - 'tests/test-tui-events.sh'
+      - 'tests/tui_phase2_screen.c'
+      - 'tests/test-tui-screen.sh'
       - '.github/workflows/beta-v2-linux.yml'
   workflow_dispatch:
 
@@ -21,5 +23,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev
       - name: Phase 1 event queue regression
         run: sh tests/test-tui-events.sh
+      - name: Phase 2 virtual-screen regression
+        run: sh tests/test-tui-screen.sh
       - name: Linux application build
         run: make OPENSSL_MODE=online
