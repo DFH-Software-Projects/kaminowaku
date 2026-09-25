@@ -4,7 +4,16 @@ All notable user-visible changes to Kaminowaku are recorded here.
 
 Kaminowaku is currently pre-1.0. Entries describe released behavior rather than internal development checkpoints.
 
-## Unreleased
+## 0.2.0 — Unreleased
+
+### Changed
+
+- new `beta-v2` terminal UI with continuous and frame display modes, top-anchored input, and differential screen updates.
+
+### Fixed
+
+- terminal viewport row alignment, stale prompt rendering, and ANSI/tab handling.
+- ANSI color state carried across logical and wrapped output lines, including title borders.
 
 ## 0.1.3 — 2026-09-23
 

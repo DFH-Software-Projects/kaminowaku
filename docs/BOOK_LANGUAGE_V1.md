@@ -1,6 +1,6 @@
 # Kaminowaku Book Language v1
 
-**Status:** Current Book authoring and runtime contract for Kaminowaku 0.1.3.
+**Status:** Current Book authoring and runtime contract for Kaminowaku 0.2.0.
 
 Kaminowaku Books are Lua programs executed by Kaminowaku's native C Book engine. Kaminowaku does **not** embed or link the upstream Lua runtime. The engine implements the supported Lua subset, standard-library surface, module resolver, sandbox, native bridge, evidence lifecycle, and persistence rules documented here.
 
