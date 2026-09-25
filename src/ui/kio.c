@@ -3,6 +3,7 @@
 // Code was refactored by me slightly for styling and behaviors.
 #include "kio.h"
 #include "kui.h"
+#include "kio_escape.h"
 #include <termios.h>
 #include <unistd.h>
 #include <string.h>
@@ -24,7 +25,7 @@ static struct termios orig_termios;
 /* ================== Terminal mode ================== */
 
 void disable_raw_mode(void) {
-        tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+        tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
 }
 
 void enable_raw_mode(void) {
@@ -35,61 +36,41 @@ void enable_raw_mode(void) {
         raw.c_lflag &= ~(ECHO | ICANON);
         raw.c_cc[VMIN] = 1;   // wait for at least 1 byte
         raw.c_cc[VTIME] = 0;  // no read timeout
-        tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+        tcsetattr(STDIN_FILENO, TCSANOW, &raw);
 }
 
-// Drain/discard stdin until it's been quiet for idle_ms.
-// Hard-caps total bytes consumed to avoid pathological hangs.
-// Restores original O_NONBLOCK state on exit.
+// @@ Unread bytes after Enter belong to the next prompt, never a blind drain.
+static unsigned char KIO_PENDING[BLEN];
+static size_t KIO_PENDING_COUNT;
+static KIO_DECODER KIO_DECODER_STATE;
 
-static void drain_input_until_idle(int fd, int idle_ms, size_t hard_cap) {
-        int oldfl = fcntl(fd, F_GETFL, 0);
-        if (oldfl == -1) oldfl = 0;
-        (void)fcntl(fd, F_SETFL, oldfl | O_NONBLOCK);
-
-        unsigned char tmp[256];
-        size_t total = 0;
-        int quiet = 0;
-
-        while (quiet < idle_ms) {
-                struct pollfd pfd = { .fd = fd, .events = POLLIN };
-                int slice = 25; /* ms granularity */
-                int pr = poll(&pfd, 1, slice);
-                if (pr > 0 && (pfd.revents & POLLIN)) {
-                        for (;;) {
-                                ssize_t n = read(fd, tmp, sizeof(tmp));
-                                if (n > 0) {
-                                        total += (size_t)n;
-                                        if (hard_cap && total >= hard_cap) {
-                                                goto out;
-                                        }
-                                        /* keep slurping this burst until EAGAIN */
-                                        continue;
-                                }
-                                if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-                                        break; /* burst ended, go back to poll */
-                                }
-                                /* Other error or EOF: bail */
-                                goto out;
-                        }
-                        quiet = 0; /* activity observed → reset quiet timer */
-                } else {
-                        /* no data in this slice */
-                        quiet += slice;
-                }
+static ssize_t kio_read_burst(unsigned char *buffer, size_t cap) {
+        struct pollfd pfd = {.fd = STDIN_FILENO, .events = POLLIN};
+        if (KIO_PENDING_COUNT) {
+                size_t n = KIO_PENDING_COUNT < cap ? KIO_PENDING_COUNT : cap;
+                memcpy(buffer, KIO_PENDING, n);
+                KIO_PENDING_COUNT -= n;
+                memmove(KIO_PENDING, KIO_PENDING + n, KIO_PENDING_COUNT);
+                return (ssize_t)n;
         }
-out:
-        (void)fcntl(fd, F_SETFL, oldfl);
+        for (;;) {
+                int ready = poll(&pfd, 1, 75);
+                if (ready == 0 || (ready < 0 && errno == EINTR)) return -2;
+                if (ready < 0 || (pfd.revents & (POLLERR | POLLNVAL))) return -1;
+                if (!(pfd.revents & (POLLIN | POLLHUP))) continue;
+                ssize_t n = read(STDIN_FILENO, buffer, cap);
+                if (n < 0 && errno == EINTR) return -2;
+                return n;
+        }
 }
 
-/* ================== Burst read ================== */
-
-static ssize_t read_input_burst(unsigned char *tmp_buffer, size_t cap) {
-        size_t limit = (cap > BLEN) ? BLEN : cap;
-        ssize_t n = read(STDIN_FILENO, tmp_buffer, limit);
-        if (n < 0 && errno == EINTR)
-                return 0;
-        return n;
+static void kio_keep_input(const unsigned char *bytes, size_t length) {
+        if (length > sizeof(KIO_PENDING) - KIO_PENDING_COUNT)
+                length = sizeof(KIO_PENDING) - KIO_PENDING_COUNT;
+        if (length) {
+                memcpy(KIO_PENDING + KIO_PENDING_COUNT, bytes, length);
+                KIO_PENDING_COUNT += length;
+        }
 }
 
 /* ================== Command history ================== */
