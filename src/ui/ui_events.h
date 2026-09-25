@@ -48,5 +48,6 @@ int ui_events_post_and_close(const ui_event_t *event);
 int ui_events_wait_next(ui_event_t *event);
 void ui_events_close(void);
 unsigned int ui_events_pending(void);
+unsigned int ui_events_high_watermark(void);
 
 #endif
