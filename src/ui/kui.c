@@ -491,18 +491,15 @@ static void kui_scrollback_push(const char *line) {
         sb->lines[idx][len] = '\0';
         KUI_OUTPUT_SEQUENCE++;
 
-        // @@ Maintain a fixed viewport when new scan results arrive.
+        // @@ When a full ring evicts the oldest row, its removal shifts the
+        // index of the visible anchor equally. Only newly appended rows must
+        // be added to the tail-relative offset, unless that anchor was evicted.
         if (sb->view_offset > 0) {
-                unsigned int next = sb->view_offset;
-                if (added_rows >= evicted_rows) {
-                        unsigned int delta = added_rows - evicted_rows;
-                        next = delta > UINT32_MAX - next ? UINT32_MAX : next + delta;
-                } else {
-                        unsigned int delta = evicted_rows - added_rows;
-                        next = delta > next ? 0 : next - delta;
-                }
-                sb->view_offset = next;
+                unsigned int delta = added_rows;
+                sb->view_offset = delta > UINT32_MAX - sb->view_offset
+                        ? UINT32_MAX : sb->view_offset + delta;
         }
+        (void)evicted_rows;
 }
 
 static void kui_log_frame_header_if_needed(FILE *fp) {
