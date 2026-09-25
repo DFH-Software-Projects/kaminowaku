@@ -67,3 +67,10 @@ Keep the existing KUI implementation available as a baseline until the replaceme
 ### Testing and cleanup
 
 Keep targeted Phase 1 Linux queue and input tests during development. Consolidate or remove temporary harnesses and generated files by Phase 5; retain durable regression coverage and any tests needed for release validation. FreeBSD validation remains a separate platform gate.
+
+### Phase 1 test inventory
+
+- `tests/tui_phase1_events.c` validates FIFO event order, wraparound, saturation rejection, immutable producer snapshots and queue reset.
+- `tests/test-tui-events.sh` builds the event test against the actual source tree without changing the primary Makefile. Run with `sh tests/test-tui-events.sh`.
+- `.github/workflows/beta-v2-linux.yml` is branch-scoped and attempts the unit regression followed by a Linux `make OPENSSL_MODE=online` smoke build on each relevant push.
+- Initial local Linux checks used a standalone queue harness compiled with AddressSanitizer and UndefinedBehaviorSanitizer, plus a prompt-painter compile/output harness. The full application binary and the GitHub Actions result still require separate confirmation. These checks are not substitutes for Phase 5 cross-platform and PTY tests.
