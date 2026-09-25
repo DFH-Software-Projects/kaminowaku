@@ -76,9 +76,13 @@ int ui_events_post(const ui_event_t *event) {
 int ui_events_post_wait(const ui_event_t *event) {
         if (!event) return -1;
         pthread_mutex_lock(&UI_EVENT_LOCK);
-        while (!UI_EVENT_CLOSED && UI_EVENT_COUNT == UI_EVENT_CAPACITY
-                && !ui_events_merge_scroll_locked(event))
+        while (!UI_EVENT_CLOSED && UI_EVENT_COUNT == UI_EVENT_CAPACITY) {
+                if (ui_events_merge_scroll_locked(event)) {
+                        pthread_mutex_unlock(&UI_EVENT_LOCK);
+                        return 0;
+                }
                 pthread_cond_wait(&UI_EVENT_SPACE, &UI_EVENT_LOCK);
+        }
         if (UI_EVENT_CLOSED) {
                 pthread_mutex_unlock(&UI_EVENT_LOCK);
                 return -1;
