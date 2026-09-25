@@ -1,0 +1,25 @@
+name: Beta V2 Linux smoke
+on:
+  push:
+    branches: [beta-v2]
+    paths:
+      - 'src/**'
+      - 'tests/tui_phase1_events.c'
+      - 'tests/test-tui-events.sh'
+      - '.github/workflows/beta-v2-linux.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev
+      - name: Phase 1 event queue regression
+        run: sh tests/test-tui-events.sh
+      - name: Linux application build
+        run: make OPENSSL_MODE=online
