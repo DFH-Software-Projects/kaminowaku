@@ -686,6 +686,9 @@ int tool_pty_run(
                 if (TOOL_PTY_RESIZED) {
                         TOOL_PTY_RESIZED = 0;
                         (void)tool_pty_apply_winsize(master_fd);
+                        // @@ Reflow the Kaminowaku viewport even when the child
+                        // emits no bytes after SIGWINCH.
+                        kui_render_page();
                 }
 
                 poll_result = poll(pollfds, poll_count, 100);
