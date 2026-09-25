@@ -1,8 +1,1 @@
 .STAGE/
-
-# @@ Local TUI regression scratch files. Scripts use $TMPDIR and clean up.
-tests/.tmp/
-tests/*.o
-tests/*.log
-tests/*_smoke
-tests/*_benchmark

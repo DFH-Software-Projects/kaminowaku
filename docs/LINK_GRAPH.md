@@ -68,8 +68,7 @@ kaminowaku/
 │   ├── kaminowaku.c        Main runtime/state-machine loop
 │   ├── kaminowaku.h
 │   └── main.c              Process entrypoint
-├── tests/                  Permanent TUI regressions and benchmark runner
-├── .github/workflows/      TUI regression CI
+├── .github/workflows/      Native Linux and FreeBSD build verification
 ├── default.ini             Shipped global profile
 ├── Makefile
 ├── install.sh
@@ -482,15 +481,9 @@ The default display mode is **continuous**. `ui` reports the current mode; `ui m
 
 ## TUI regression and CI path
 
-[`tests/run-tui-regressions.sh`](../tests/run-tui-regressions.sh) builds and runs permanent C checks in a temporary directory. [`tests/README.md`](../tests/README.md) describes coverage and manual acceptance; [`.github/workflows/tui-regression.yml`](../.github/workflows/tui-regression.yml) runs the suite in CI. The tests exercise fragmented input and paste, event ordering, differential screen writes, wrap/ring indexing, thread handoff, shutdown/restart, PTY restoration and performance diagnostics.
+The permanent C regression suite and benchmark runner are retained in the [`beta-v2` development branch](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests), not in `main`. The [beta-v2 test README](https://github.com/DFH-Software-Projects/kaminowaku/blob/beta-v2/tests/README.md) documents the suite and interactive Linux/FreeBSD acceptance scenarios.
 
-```sh
-sh tests/run-tui-regressions.sh
-sh tests/run-tui-regressions.sh --bench
-SANITIZE=1 sh tests/run-tui-regressions.sh
-```
-
-Run the interactive Linux/FreeBSD acceptance scenarios in `tests/README.md` as well: the C regressions do not substitute for validating real trackpad input, resize/scrollback, both UI display modes and live interactive tools.
+The `main` branch runs [native Linux/FreeBSD build verification](../.github/workflows/native-build.yml) without bundling the test sources. To run development regressions, check out `beta-v2` and execute `sh tests/run-tui-regressions.sh`; real-terminal acceptance is still required.
 
 ## Build-time link path
 
@@ -621,9 +614,9 @@ This is the practical inverse of the link graph: start with the boundary being c
 | Book core module | `books/main/`, native private ABI if required, installer asset checks |
 | Protocol module | `books/modules/`, dependent system Books, language reference |
 | UI output semantics | `kui.c`, `ui_events.c`, `ui_screen.c`, `banner.c`, subsystem notice sites |
-| Input escape/history behavior | `kio.c`, `kio_escape.c`, KUI input events, tests under `tests/` |
-| Scrollback, resize or redraw | `kui.c`, `ui_wrap_index.c`, `ui_screen.c`, banner, TUI regressions |
-| UI mode / terminal lifecycle | `cmd_scan.c`, `help.c`, `kui.c`, `tool_pty.c`, event queue, TUI regressions |
+| Input escape/history behavior | `kio.c`, `kio_escape.c`, KUI input events; regression suite on `beta-v2` |
+| Scrollback, resize or redraw | `kui.c`, `ui_wrap_index.c`, `ui_screen.c`, banner; development regressions on `beta-v2` |
+| UI mode / terminal lifecycle | `cmd_scan.c`, `help.c`, `kui.c`, `tool_pty.c`, event queue; development regressions on `beta-v2` |
 | Input/history behavior | `kio.c`, `kio_escape.c`, `kaminowaku.c` sanitization/tokenization |
 | External-tool execution | `tools.c`, `tool_exec.c`, `tool_pty.c`, target output handling |
 | Source/header movement | `Makefile`, staged header basename uniqueness, installer source checks |

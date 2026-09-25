@@ -51,11 +51,8 @@ library for **Linux and FreeBSD** as part of the deployment workflow.
 
 - NOSIX: `make test` includes a real-time signal storm that repeatedly
   interrupts a 120ms poll, verifying that the deadline still expires.
-- Kaminowaku: `sh tests/run_kwire_deadline.sh` verifies expiration, native
-  ceiling and that repeated checks do not reset the timer.
-- The Linux GitHub workflows compile both codebases and run the portable unit
-  tests. Validate actual raw capture and network behavior on both target
-  platforms before merging or shipping the updated shared libraries.
+- Kaminowaku: `sh tests/run_kwire_deadline.sh` on the [`beta-v2` development branch](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests) verifies expiration, the native ceiling and that repeated checks do not reset the timer.
+- `main` uses native Linux/FreeBSD build verification; regression sources and workflows remain on `beta-v2`. Validate actual raw capture and network behavior on both target platforms before merging or shipping updated shared libraries.
 
 These deadlines bound cooperative userspace and normal native socket/BPF
 operations. No in-process timeout can guarantee recovery from an uninterruptible

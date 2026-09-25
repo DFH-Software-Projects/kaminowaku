@@ -227,14 +227,7 @@ ui mode frame
 
 The terminal input decoder supports fragmented escape sequences, navigation/editing keys, mouse-wheel scrolling and bracketed paste. KUI owns prompt painting and screen updates through an ordered event queue and differential screen renderer. Interactive external tools use a dedicated PTY handoff so their terminal state is restored when control returns to Kaminowaku. `debug on/off` controls debugging; it is not the display-mode switch.
 
-For implementation details see the [TUI architecture and control flow](docs/LINK_GRAPH.md#ui-and-rendering-path). To exercise the permanent C regression suite on Linux or FreeBSD:
-
-```sh
-sh tests/run-tui-regressions.sh
-sh tests/run-tui-regressions.sh --bench
-```
-
-See [TUI regression coverage and manual acceptance](tests/README.md); real-terminal acceptance testing remains necessary.
+For implementation details see the [TUI architecture and control flow](docs/LINK_GRAPH.md#ui-and-rendering-path). Regression tests and manual acceptance instructions are maintained on the [`beta-v2` development branch](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests); they are not included in the `main` source tree. Real-terminal acceptance testing remains necessary.
 
 ## Workflow
 
@@ -940,7 +933,7 @@ The build uses a generated `.STAGE/` tree for header projection, object files, m
 ## Developer documentation
 
 - [Source link graph](docs/LINK_GRAPH.md) — source ownership, beta-v2 TUI event/renderer control flow, compile/link relationships, external dependency boundaries, and change-impact mapping.
-- [TUI regression suite](tests/README.md) — permanent input, event, compositor, wrap-index, shutdown and PTY tests, benchmark runner and interactive acceptance checklist.
+- [TUI regression suite (`beta-v2`)](https://github.com/DFH-Software-Projects/kaminowaku/blob/beta-v2/tests/README.md) — input, event, compositor, wrap-index, shutdown and PTY tests, benchmark runner and interactive acceptance checklist.
 - [Book language reference](docs/BOOK_LANGUAGE_V1.md) — supported Lua syntax, Book/module authoring contract, runtime boundaries, and guidance for Books versus external tools/scripts.
 - [Hard timeout guarantees](docs/HARD_TIMEOUTS.md) — monotonic receive deadlines, Book execution limits, regression checks, and native NOSIX rebuild requirements.
 
