@@ -122,6 +122,8 @@ int ui_screen_commit(UI_SCREEN *screen) {
                 memcpy(buffer + used, "\x1b[0m\x1b[K", 7);
                 used += 7;
                 if (ui_screen_write(screen->fd, buffer, used) != 0) return -1;
+                screen->bytes_written += (unsigned long long)used;
+                screen->write_calls++;
                 *old = *next;
                 screen->dirty_rows++;
         }
