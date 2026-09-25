@@ -12,6 +12,7 @@ int main(void) {
         char expected[64];
 
         ui_events_reset();
+        assert(ui_events_high_watermark() == 0);
         assert(ui_events_next(&received) == 0);
         assert(ui_events_post(NULL) == -1);
 
@@ -22,6 +23,7 @@ int main(void) {
         }
 
         assert(ui_events_post(&event) == -1);
+        assert(ui_events_high_watermark() == UI_EVENT_CAPACITY);
 
         for (int i = 0; i < 17; i++) {
                 assert(ui_events_next(&received) == 1);
