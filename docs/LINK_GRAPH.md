@@ -2,7 +2,7 @@
 
 This document maps the current Kaminowaku source tree, subsystem boundaries, control flow, and direct internal source relationships.
 
-It is a **maintainer reference for the current implementation on `main`**. It describes how the active codebase is connected; it is not a historical design document and does not describe retired architecture.
+It is a **maintainer reference for the current implementation on `beta-v2`**. It describes how the active codebase is connected; it is not a historical design document and does not describe retired architecture.
 
 ## Contents
 
@@ -18,6 +18,7 @@ It is a **maintainer reference for the current implementation on `main`**. It de
 - [External-tool path](#external-tool-path)
 - [Persistence and evidence](#persistence-and-evidence)
 - [UI and rendering path](#ui-and-rendering-path)
+- [TUI regression and CI path](#tui-regression-and-ci-path)
 - [Build-time link path](#build-time-link-path)
 - [Implementation link index](#implementation-link-index)
 - [Change-impact guide](#change-impact-guide)
@@ -60,13 +61,15 @@ kaminowaku/
 │   ├── projects/           Project lifecycle and NOSIX lifecycle
 │   ├── targets/            Target model, persistence, context, display
 │   ├── tools/              External-tool registration and execution
-│   ├── ui/                 Input, renderer, banner
+│   ├── ui/                 Input decoder, event transport, compositor, renderer, banner
 │   ├── data.h              Shared program state and core data model
 │   ├── helpers.c
 │   ├── helpers.h
 │   ├── kaminowaku.c        Main runtime/state-machine loop
 │   ├── kaminowaku.h
 │   └── main.c              Process entrypoint
+├── tests/                  Permanent TUI regressions and benchmark runner
+├── .github/workflows/      TUI regression CI
 ├── default.ini             Shipped global profile
 ├── Makefile
 ├── install.sh
@@ -85,6 +88,8 @@ flowchart TD
 
     B --> C["Startup / datastore / profile init"]
     B --> D["src/ui/kio.c<br/>terminal input"]
+    D --> D1["src/ui/kio_escape.c<br/>persistent escape decoder"]
+    D --> D2["src/ui/kui.c<br/>input event interface"]
     B --> E["SANITIZE_INPUT()"]
     E --> F["CANONICALIZE_CMD_ALIAS()"]
     F --> G["input_tokenization()"]
@@ -101,7 +106,10 @@ flowchart TD
     H --> Q["Tools"]
     H --> R["Help / debug"]
 
-    B --> S["src/ui/kui.c<br/>render"]
+    B --> S["src/ui/kui.c<br/>ordered event consumer / renderer"]
+    S --> U["src/ui/ui_events.c<br/>bounded FIFO"]
+    S --> V["src/ui/ui_wrap_index.c<br/>cached row offsets"]
+    S --> W["src/ui/ui_screen.c<br/>differential compositor"]
     S --> T["src/ui/banner.c<br/>status banner"]
 ```
 
@@ -431,27 +439,58 @@ Persistence ownership:
 
 ## UI and rendering path
 
-Input and output are deliberately separated.
+The `beta-v2` TUI separates terminal byte decoding, command editing, ordered UI events, and physical-screen painting. The UI, rather than the command input loop, owns viewport/prompt rendering and terminal mouse capture.
 
 ```mermaid
-flowchart LR
-    TERM["Terminal"] --> KIO["kio.c<br/>raw input / history"]
-    KIO --> CORE["kaminowaku.c<br/>sanitize / aliases / tokenize"]
-    CORE --> CMD["cmd_scan.c<br/>dispatch"]
-    CMD --> SUB["subsystems"]
-    SUB --> KUI["kui.c<br/>output buffer / render"]
-    KUI --> BANNER["banner.c<br/>project / target / IF / TX / RX"]
-    BANNER --> TERM
+flowchart TD
+    TERM["Terminal input"] --> KIO["kio.c<br/>raw input / line editing"]
+    KIO --> ESC["kio_escape.c<br/>persistent CSI, SGR/X10 wheel, paste decoder"]
+    ESC -->|tokens| KIO
+    KIO -->|prompt / scroll / bell| KUIAPI["kui.h public input API"]
+    KIO -->|completed command| CORE["kaminowaku.c<br/>sanitize / aliases / tokenize"]
+    CORE --> CMD["cmd_scan.c<br/>context dispatch"]
+    CMD --> SUB["native subsystems / Books / tools"]
+    SUB -->|kui_add_line and friends| KUIAPI
+    KUIAPI --> QUEUE["ui_events.c<br/>bounded ordered queue and barriers"]
+    QUEUE --> RENDER["kui.c<br/>renderer thread / event handler"]
+    RENDER --> WRAP["ui_wrap_index.c<br/>physical-row index"]
+    RENDER --> BANNER["banner.c<br/>status header"]
+    RENDER --> SCREEN["ui_screen.c<br/>desired/current row diff"]
+    WRAP --> SCREEN
+    BANNER --> SCREEN
+    SCREEN -->|changed rows| TERMOUT["Terminal output"]
 ```
 
-| UI file | Primary role |
+| UI component | Current responsibility |
 | --- | --- |
-| [`kio.c`](../src/ui/kio.c) | terminal input, raw-mode behavior, command history |
-| [`kui.c`](../src/ui/kui.c) | output accumulation and page rendering |
-| [`banner.c`](../src/ui/banner.c) | top banner and active runtime/project status |
-| [`kui_guard.c`](../src/ui/kui_guard.c) | UI guard/invariant support |
+| [`kio.c`](../src/ui/kio.c) / [`kio.h`](../src/ui/kio.h) | Terminal raw mode, bounded line editing, command input, and delivery of input changes to KUI |
+| [`kio_escape.c`](../src/ui/kio_escape.c) / [`kio_escape.h`](../src/ui/kio_escape.h) | Persistent byte-by-byte decoder for fragmented escapes, arrow/editing tokens, mouse wheel and bracketed paste |
+| [`ui_events.c`](../src/ui/ui_events.c) / [`ui_events.h`](../src/ui/ui_events.h) | Ordered, bounded UI event transport; event copies, scroll coalescing, synchronization and shutdown barrier |
+| [`kui.c`](../src/ui/kui.c) / [`kui.h`](../src/ui/kui.h) | Event handling, renderer-thread lifecycle, input/prompt and scrollback state, display modes, terminal lifecycle |
+| [`ui_wrap_index.c`](../src/ui/ui_wrap_index.c) / [`ui_wrap_index.h`](../src/ui/ui_wrap_index.h) | Width-specific physical-row counts and prefix-index lookup for logical scrollback |
+| [`ui_screen.c`](../src/ui/ui_screen.c) / [`ui_screen.h`](../src/ui/ui_screen.h) | Desired/current screen state and differential writes of changed rows |
+| [`banner.c`](../src/ui/banner.c) | Project, target, interface and network-accounting header |
+| [`kui_guard.c`](../src/ui/kui_guard.c) | Guarded UI rendering support for network call sites |
 
-Subsystems generally write through `kui_add_line()` or `kui_add_line_and_render()` rather than writing directly to the terminal.
+### Event ownership, display modes and terminal lifecycle
+
+Subsystem output enters via `kui_add_line()`, `kui_add_line_and_render()` or progress/churning APIs, not by direct terminal painting. Events carry copied, bounded text/input data. The queue provides FIFO delivery and synchronous barriers where ordering against runtime logging or state transitions matters. An available renderer thread consumes events; the implementation retains a synchronous fallback if renderer-thread creation fails.
+
+The default display mode is **continuous**. `ui` reports the current mode; `ui mode continuous` and `ui mode frame` change it from the project, target or tool context. Mode changes are events handled by KUI; they invalidate the screen cache when necessary. The older `debug on/off` toggle is not the display-mode selector.
+
+`kui_enter()` establishes alternate-screen/mouse state and starts the renderer. The PTY path in [`tool_pty.c`](../src/tools/tool_pty.c) calls `kui_fork_prepare()` and `kui_fork_parent()` around process creation, avoiding inherited renderer state across the fork. `kui_exit()` drains accepted events, stops and joins the renderer, restores the terminal, then closes the UI queue. Do not write to the terminal concurrently from input, worker or tool code while KUI owns it.
+
+## TUI regression and CI path
+
+[`tests/run-tui-regressions.sh`](../tests/run-tui-regressions.sh) builds and runs permanent C checks in a temporary directory. [`tests/README.md`](../tests/README.md) describes coverage and manual acceptance; [`.github/workflows/tui-regression.yml`](../.github/workflows/tui-regression.yml) runs the suite in CI. The tests exercise fragmented input and paste, event ordering, differential screen writes, wrap/ring indexing, thread handoff, shutdown/restart, PTY restoration and performance diagnostics.
+
+```sh
+sh tests/run-tui-regressions.sh
+sh tests/run-tui-regressions.sh --bench
+SANITIZE=1 sh tests/run-tui-regressions.sh
+```
+
+Run the interactive Linux/FreeBSD acceptance scenarios in `tests/README.md` as well: the C regressions do not substitute for validating real trackpad input, resize/scrollback, both UI display modes and live interactive tools.
 
 ## Build-time link path
 
@@ -505,8 +544,12 @@ The following tables list the **direct Kaminowaku headers included by each imple
 | Implementation | Direct local links |
 | --- | --- |
 | [`src/ui/banner.c`](../src/ui/banner.c) | `banner.h`, `helpers.h`, `kscan.h` |
-| [`src/ui/kio.c`](../src/ui/kio.c) | `kio.h`, `kui.h` |
-| [`src/ui/kui.c`](../src/ui/kui.c) | `kui.h`, `banner.h`, `helpers.h` |
+| [`src/ui/kio.c`](../src/ui/kio.c) | `kio.h`, `kui.h`, `kio_escape.h` |
+| [`src/ui/kio_escape.c`](../src/ui/kio_escape.c) | `kio_escape.h` |
+| [`src/ui/kui.c`](../src/ui/kui.c) | `kui.h`, `ui_events.h`, `ui_screen.h`, `ui_wrap_index.h`, `banner.h`, `helpers.h` |
+| [`src/ui/ui_events.c`](../src/ui/ui_events.c) | `ui_events.h` |
+| [`src/ui/ui_screen.c`](../src/ui/ui_screen.c) | `ui_screen.h` |
+| [`src/ui/ui_wrap_index.c`](../src/ui/ui_wrap_index.c) | `ui_wrap_index.h` |
 | [`src/ui/kui_guard.c`](../src/ui/kui_guard.c) | `kui.h` |
 
 ### Network
@@ -577,8 +620,11 @@ This is the practical inverse of the link graph: start with the boundary being c
 | Book result persistence | `book_output.c`, `book_persist.c`, `books.c`, target display |
 | Book core module | `books/main/`, native private ABI if required, installer asset checks |
 | Protocol module | `books/modules/`, dependent system Books, language reference |
-| UI output semantics | `kui.c`, `banner.c`, subsystem notice sites |
-| Input/history behavior | `kio.c`, `kaminowaku.c` sanitization/tokenization |
+| UI output semantics | `kui.c`, `ui_events.c`, `ui_screen.c`, `banner.c`, subsystem notice sites |
+| Input escape/history behavior | `kio.c`, `kio_escape.c`, KUI input events, tests under `tests/` |
+| Scrollback, resize or redraw | `kui.c`, `ui_wrap_index.c`, `ui_screen.c`, banner, TUI regressions |
+| UI mode / terminal lifecycle | `cmd_scan.c`, `help.c`, `kui.c`, `tool_pty.c`, event queue, TUI regressions |
+| Input/history behavior | `kio.c`, `kio_escape.c`, `kaminowaku.c` sanitization/tokenization |
 | External-tool execution | `tools.c`, `tool_exec.c`, `tool_pty.c`, target output handling |
 | Source/header movement | `Makefile`, staged header basename uniqueness, installer source checks |
 | Runtime asset movement | `install.sh`, README paths, Book/module resolver assumptions |
@@ -611,4 +657,4 @@ Keeping those ownership boundaries intact prevents network behavior from leaking
 
 ## Vendored dependency packaging (Phase 1)
 
-`libs/nosix/` contains the licensed Linux/FreeBSD amd64 NOSIX ABI, including public headers and manifests. `libs/openssl/` contains the pinned OpenSSL 3.5.8 source, matching native static libraries, generated per-OS headers and license. The `--offline` mode uses only the pinned static OpenSSL archives and verified prebuilt native executable; it neither discovers system OpenSSL nor calls a package manager. The developer-only `libs/openssl/build-native.sh` prepares static OpenSSL from a verified source archive. The `--online` mode does **not** require the vendored OpenSSL archive or libraries: it optionally acquires missing prerequisites with the host package manager and compiles Kaminowaku against OS-managed OpenSSL 3 shared libraries using pkg-config/pkgconf. Both paths stage NOSIX privately, retain license and ABI integrity checks, and avoid global NOSIX/SSL replacements.
+`libs/nosix/` contains the licensed Linux/FreeBSD amd64 NOSIX ABI, including public headers and manifests. `libs/openssl/` contains the pinned OpenSSL 3.5.8 source, matching native static libraries, generated per-OS headers and license. The `--offline` mode uses only the pinned static OpenSSL archives and clean source build of Kaminowaku against the verified native static libraries; it neither discovers system OpenSSL nor calls a package manager. The developer-only `libs/openssl/build-native.sh` prepares static OpenSSL from a verified source archive. The `--online` mode does **not** require the vendored OpenSSL archive or libraries: it optionally acquires missing prerequisites with the host package manager and compiles Kaminowaku against OS-managed OpenSSL 3 shared libraries using pkg-config/pkgconf. Both paths stage NOSIX privately, retain license and ABI integrity checks, and avoid global NOSIX/SSL replacements.
