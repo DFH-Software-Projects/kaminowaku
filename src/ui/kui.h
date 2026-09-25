@@ -3,6 +3,15 @@
 #ifndef KUI_H
 #define KUI_H
 #include "data.h"
+// @@ Display mode is UI state, not part of debug or the command parser.
+typedef enum {
+        KUI_DISPLAY_CONTINUOUS = 0,
+        KUI_DISPLAY_FRAME = 1
+} kui_display_mode_t;
+
+kui_display_mode_t kui_display_mode_get(void);
+int kui_display_mode_set(kui_display_mode_t mode);
+
 void kui_enter(_carry_forward * _prog_data);
 void kui_exit(void);
 void kui_render_page(void);
