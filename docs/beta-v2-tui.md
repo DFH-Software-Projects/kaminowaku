@@ -1,6 +1,6 @@
 # Beta V2 — TUI architecture and display modes
 
-Status: design and migration plan. This document does not imply that the new renderer has been implemented.
+Status: Phase 1 event-boundary implementation in progress. The existing full-page renderer remains active; threaded rendering and display modes are not yet implemented.
 
 ## Objectives
 
@@ -53,3 +53,17 @@ Keep the existing KUI implementation available as a baseline until the replaceme
 - Logging remains complete even when rendering lags.
 - Interactive PTY tools preserve correct terminal state, including after exit and failure.
 - Benchmark bytes written, paint latency, wrap-index cost, CPU idle use, and queue depth with the configured maximum scrollback.
+
+## Phase 1 implementation notes (2026-09-24)
+
+- Added `src/ui/ui_events.h` and `src/ui/ui_events.c`: a fixed-capacity, ordered event ring. Each event owns its text snapshot. On queue saturation the synchronous KUI dispatcher drains before retrying.
+- KIO retains raw terminal input, history, mouse parsing and editing decisions, but publishes scroll requests and prompt snapshots through new KUI APIs. It no longer paints the prompt or calls the page renderer directly.
+- KUI now owns the existing prompt drawing algorithm (including ANSI-aware prompt width and horizontal input scrolling), mouse scroll presentation and terminal bell. The page-render function drains queued command output before painting, and re-anchors the input line after page updates.
+- `kui_add_line()` and `kui_add_line_and_render()` retain their public signatures and formatting conventions. They post owned output events, which KUI drains in order into the existing log sink and scrollback. `kui_frame_start()`, `kui_flush_log()`, and shutdown drain preceding output to preserve logging order.
+- The existing `RENDER_NORMAL` and `RENDER_SCROLLING` behavior is deliberately unchanged in this phase. The user-facing `continuous|frame` command belongs to Phase 3.
+- This event ring is explicitly **not thread-safe** yet. Its sole consumer and producers run synchronously in Phase 1. Before Phase 4, introduce queue synchronization and a bounded backpressure policy for independent producers.
+- Existing banner, progress, and external PTY pathways have not been migrated to exclusive terminal ownership. Complete compositor ownership and PTY integration in later phases without altering the command subsystem's notice syntax.
+
+### Testing and cleanup
+
+Keep targeted Phase 1 Linux queue and input tests during development. Consolidate or remove temporary harnesses and generated files by Phase 5; retain durable regression coverage and any tests needed for release validation. FreeBSD validation remains a separate platform gate.
