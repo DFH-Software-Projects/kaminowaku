@@ -69,6 +69,34 @@ void f_type_debug_integer_display (_carry_forward * _prog_data) {
 
 // COMMAND SCAN: Primary Function
 void cmd_scan (_carry_forward * _prog_data) {
+        // @@ UI configuration is universal: it works in project, target and tools contexts.
+        if (_prog_data->f_type <= S_DEFAULT
+                && _prog_data->cmd_tokens_count > 0
+                && _prog_data->cmd_tokens[0]
+                && strcmp((char*)_prog_data->cmd_tokens[0], "ui") == MATCH) {
+                if (_prog_data->cmd_tokens_count == 1) {
+                        kui_add_line(NOTICE_INFO "UI display mode: " ANSI_COLOR_CYAN "%s" ANSI_COLOR_RESET,
+                                kui_display_mode_get() == KUI_DISPLAY_FRAME ? "frame" : "continuous");
+                } else if (_prog_data->cmd_tokens_count == 3
+                        && strcmp((char*)_prog_data->cmd_tokens[1], "mode") == MATCH) {
+                        kui_display_mode_t mode;
+                        if (strcmp((char*)_prog_data->cmd_tokens[2], "continuous") == MATCH)
+                                mode = KUI_DISPLAY_CONTINUOUS;
+                        else if (strcmp((char*)_prog_data->cmd_tokens[2], "frame") == MATCH)
+                                mode = KUI_DISPLAY_FRAME;
+                        else {
+                                kui_add_line("< Usage: ui mode [ continuous | frame ]");
+                                return;
+                        }
+                        if (kui_display_mode_set(mode) == 0)
+                                kui_add_line(NOTICE_SUCCESS "UI display mode: " ANSI_COLOR_CYAN "%s" ANSI_COLOR_RESET,
+                                        mode == KUI_DISPLAY_FRAME ? "frame" : "continuous");
+                } else {
+                        kui_add_line("< Usage: ui mode [ continuous | frame ]");
+                }
+                return;
+        }
+
         switch (_prog_data->f_type) {
                 ///////////////////////////////////////////////////////////////////////////////////////////////////////[Always Growing]
                 case S_DEFAULT: { // Figure out which command it is
