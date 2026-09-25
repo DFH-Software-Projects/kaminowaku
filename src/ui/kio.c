@@ -17,6 +17,7 @@
 #define BLEN 1024 // @@ Burst Buffer Length = INPUT_BLOCK
 
 static struct termios orig_termios;
+static int kio_restore_registered = ISFALSE;
 
 #ifndef TAB_STOP
 #define TAB_STOP 8
@@ -30,7 +31,10 @@ void disable_raw_mode(void) {
 
 void enable_raw_mode(void) {
         tcgetattr(STDIN_FILENO, &orig_termios);
-        atexit(disable_raw_mode);
+        if (!kio_restore_registered) {
+                (void)atexit(disable_raw_mode);
+                kio_restore_registered = ISTRUE;
+        }
 
         struct termios raw = orig_termios;
         raw.c_lflag &= ~(ECHO | ICANON);
@@ -173,7 +177,8 @@ int read_line(_carry_forward *data) {
         if (!data) return -1;
         memset(data->cmd_input, 0, INPUT_BLOCK);
         memset(data->cmd_history[0], 0, INPUT_BLOCK);
-        kio_decoder_timeout(&KIO_DECODER_STATE);
+        // @@ A cancelled/truncated bracketed paste must never poison the next prompt.
+        kio_decoder_reset(&KIO_DECODER_STATE);
         if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0)
                 { rows = ws.ws_row; cols = ws.ws_col; }
         kui_input_begin();
