@@ -6,6 +6,13 @@
 void kui_enter(_carry_forward * _prog_data);
 void kui_exit(void);
 void kui_render_page(void);
+/* @@ Phase 1: KIO reports input; only KUI paints the prompt and viewport. */
+void kui_input_begin(void);
+void kui_input_update(const char *prompt, const char *input, unsigned int cursor);
+void kui_input_end(void);
+void kui_input_scroll(int rows);
+void kui_input_bell(void);
+
 void kui_add_line(const char *fmt, ...);
 void kui_add_line_and_render(const char *fmt, ...);
 void kui_add_line_and_render_guard(const char *fmt, ...);
