@@ -65,6 +65,7 @@ static uint64_t KUI_FRAME_START_SEQUENCE = 0;
 // @@ Only the renderer thread paints once it has started.
 static pthread_t KUI_RENDER_THREAD;
 static int KUI_RENDER_RUNNING = ISFALSE;
+static _Thread_local int KUI_RENDER_CONTEXT = ISFALSE;
 
 typedef struct {
         pthread_mutex_t lock;
@@ -638,8 +639,7 @@ static void kui_input_anchor(void) {
 // @@ Every terminal-writing operation is serialized by the renderer.
 // The existing one-thread fallback remains available if pthread_create fails.
 static int kui_is_renderer(void) {
-        return KUI_RENDER_RUNNING == ISTRUE
-                && pthread_equal(pthread_self(), KUI_RENDER_THREAD);
+        return KUI_RENDER_CONTEXT == ISTRUE;
 }
 
 static void kui_ack_event(KUI_EVENT_ACK *ack, int result) {
@@ -816,11 +816,13 @@ static void kui_post_event(const ui_event_t *event) {
 static void *kui_render_thread_main(void *unused) {
         ui_event_t event;
         (void)unused;
+        KUI_RENDER_CONTEXT = ISTRUE;
         while (ui_events_wait_next(&event) == 1) {
                 int stop = event.type == UI_EVENT_STOP;
                 kui_handle_event(&event);
                 if (stop) break;
         }
+        KUI_RENDER_CONTEXT = ISFALSE;
         return NULL;
 }
 
