@@ -8,6 +8,8 @@ on:
       - 'tests/test-tui-events.sh'
       - 'tests/tui_phase2_screen.c'
       - 'tests/test-tui-screen.sh'
+      - 'tests/tui_phase3_wrap_index.c'
+      - 'tests/test-tui-wrap-index.sh'
       - '.github/workflows/beta-v2-linux.yml'
   workflow_dispatch:
 
@@ -25,5 +27,7 @@ jobs:
         run: sh tests/test-tui-events.sh
       - name: Phase 2 virtual-screen regression
         run: sh tests/test-tui-screen.sh
+      - name: Phase 3 scrollback index regression
+        run: sh tests/test-tui-wrap-index.sh
       - name: Linux application build
         run: make OPENSSL_MODE=online
