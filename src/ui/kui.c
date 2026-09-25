@@ -847,9 +847,20 @@ static void kui_render_thread_stop(void) {
         ui_event_t event = {0};
         KUI_EVENT_ACK ack;
         if (KUI_RENDER_RUNNING != ISTRUE) return;
-        if (pthread_mutex_init(&ack.lock, NULL) != 0) return;
+        if (pthread_mutex_init(&ack.lock, NULL) != 0) {
+                // @@ Even allocation failures must join before screen teardown.
+                ui_events_close();
+                (void)pthread_join(KUI_RENDER_THREAD, NULL);
+                KUI_RENDER_RUNNING = ISFALSE;
+                ui_events_reset();
+                return;
+        }
         if (pthread_cond_init(&ack.ready, NULL) != 0) {
                 pthread_mutex_destroy(&ack.lock);
+                ui_events_close();
+                (void)pthread_join(KUI_RENDER_THREAD, NULL);
+                KUI_RENDER_RUNNING = ISFALSE;
+                ui_events_reset();
                 return;
         }
         ack.done = ISFALSE;
