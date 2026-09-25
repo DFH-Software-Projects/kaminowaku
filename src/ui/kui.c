@@ -815,6 +815,8 @@ static void kui_add_vfmt(int do_render, const char *fmt, va_list ap) {
         event.type = UI_EVENT_OUTPUT;
         (void)vsnprintf(event.output, sizeof(event.output), fmt, ap);
         kui_post_event(&event);
+        // @@ Preserve immediate log ordering while rendering remains deferred.
+        kui_dispatch_events();
         if (do_render)
                 kui_render_page();
 }
