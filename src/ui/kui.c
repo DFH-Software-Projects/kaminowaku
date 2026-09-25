@@ -576,7 +576,7 @@ static int visible_width_noansi(const char *s)
 }
 
 static void kui_input_draw(const char *prompt, const char *INPUT_BUFFER, int cursor) {
-        struct winsize ws;
+        struct winsize ws = {0};
         ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
         int term_width = ws.ws_col > 0 ? ws.ws_col : 80;
 
