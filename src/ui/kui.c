@@ -65,6 +65,9 @@ static uint64_t KUI_FRAME_START_SEQUENCE = 0;
 // @@ Only the renderer thread paints once it has started.
 static pthread_t KUI_RENDER_THREAD;
 static int KUI_RENDER_RUNNING = ISFALSE;
+static int KUI_MOUSE_ENABLED = ISFALSE;
+static unsigned int KUI_LAYOUT_TOP = 0;
+static unsigned int KUI_LAYOUT_BOTTOM = 0;
 static _Thread_local int KUI_RENDER_CONTEXT = ISFALSE;
 
 typedef struct {
@@ -108,15 +111,21 @@ static void kui_get_winsize(unsigned *rows_out, unsigned *cols_out) {
 }
 
 static void kui_mouse_enable(void) {
-	(void)write(STDOUT_FILENO, "\x1b[?1000h", 8);
-	(void)write(STDOUT_FILENO, "\x1b[?1002h", 8);
-	(void)write(STDOUT_FILENO, "\x1b[?1006h", 8);
+        if (KUI_MOUSE_ENABLED == ISTRUE) return;
+        (void)write(STDOUT_FILENO, "\x1b[?1000h", 8);
+        (void)write(STDOUT_FILENO, "\x1b[?1002h", 8);
+        (void)write(STDOUT_FILENO, "\x1b[?1006h", 8);
+        (void)write(STDOUT_FILENO, "\x1b[?2004h", 8);
+        KUI_MOUSE_ENABLED = ISTRUE;
 }
 
 static void kui_mouse_disable(void) {
-	(void)write(STDOUT_FILENO, "\x1b[?1006l", 8);
-	(void)write(STDOUT_FILENO, "\x1b[?1002l", 8);
-	(void)write(STDOUT_FILENO, "\x1b[?1000l", 8);
+        if (KUI_MOUSE_ENABLED != ISTRUE) return;
+        (void)write(STDOUT_FILENO, "\x1b[?2004l", 8);
+        (void)write(STDOUT_FILENO, "\x1b[?1006l", 8);
+        (void)write(STDOUT_FILENO, "\x1b[?1002l", 8);
+        (void)write(STDOUT_FILENO, "\x1b[?1000l", 8);
+        KUI_MOUSE_ENABLED = ISFALSE;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -1072,6 +1081,8 @@ void kui_enter(_carry_forward * _prog_data) {
         KUI_INPUT_ACTIVE = ISFALSE;
         KUI_INPUT_DIRTY = ISTRUE;
         KUI_SMALL = ISFALSE;
+        KUI_MOUSE_ENABLED = ISFALSE;
+        KUI_LAYOUT_TOP = KUI_LAYOUT_BOTTOM = 0;
         if (ui_screen_init(&KUI_SCREEN, STDOUT_FILENO) == 0)
                 KUI_SCREEN_READY = ISTRUE;
         memset(KUI_CHURNING, 0x00, sizeof(KUI_CHURNING));
