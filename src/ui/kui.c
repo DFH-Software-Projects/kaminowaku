@@ -968,11 +968,77 @@ static void kui_render_small(unsigned rows, unsigned cols) {
         (void)write(STDOUT_FILENO, ANSI_CURSOR_SHOW, strlen(ANSI_CURSOR_SHOW));
 }
 
+// @@ A resize changes the number of physical rows, not the text the user
+// selected. Preserve the first visible logical line and its byte segment.
+typedef struct {
+        unsigned int logical;
+        size_t byte;
+        int valid;
+} KUI_VIEW_ANCHOR;
+
+static KUI_VIEW_ANCHOR kui_anchor_before_resize(const KUI_SCROLLBACK *sb,
+        unsigned int old_cols) {
+        KUI_VIEW_ANCHOR anchor = {0};
+        unsigned int first = 0, inside = 0, height, total, off;
+        if (!sb || !sb->line_count || !old_cols || !sb->view_offset ||
+                KUI_LAYOUT_BOTTOM < KUI_LAYOUT_TOP || !KUI_LAYOUT_TOP)
+                return anchor;
+        total = kui_scrollback_total_rows(sb, old_cols);
+        height = KUI_LAYOUT_BOTTOM - KUI_LAYOUT_TOP + 1;
+        off = sb->view_offset < total ? sb->view_offset : total;
+        if (total > height + off) first = total - height - off;
+        if (ui_wrap_index_locate(&KUI_WRAP_INDEX, first, &anchor.logical, &inside))
+                return anchor;
+        const char *line = sb->lines[(sb->head + anchor.logical) % KUI_MAX_SCROLL_LINES];
+        size_t n = strnlen(line, KUI_MAX_SCROLL_COLS), pos = 0;
+        for (unsigned int segment = 0; pos < n && segment < inside; segment++) {
+                size_t end = kui_wrap_find_end(line, n, pos, old_cols);
+                pos = end > pos ? end : pos + 1;
+                while (pos < n && kui_is_space_byte((unsigned char)line[pos])) pos++;
+        }
+        anchor.byte = pos;
+        anchor.valid = ISTRUE;
+        return anchor;
+}
+
+static void kui_anchor_after_resize(KUI_SCROLLBACK *sb, unsigned int cols,
+        unsigned int height, KUI_VIEW_ANCHOR anchor) {
+        unsigned int logical, base = 0, segment = 0;
+        unsigned int total, row, first;
+        if (!anchor.valid || !sb || !height || !cols || !sb->line_count) return;
+        (void)kui_scrollback_total_rows(sb, cols);
+        logical = anchor.logical < sb->line_count ? anchor.logical : sb->line_count - 1;
+        if (KUI_DISPLAY_MODE == KUI_DISPLAY_FRAME) {
+                uint64_t oldest = KUI_OUTPUT_SEQUENCE >= sb->line_count
+                        ? KUI_OUTPUT_SEQUENCE - sb->line_count : 0;
+                if (KUI_FRAME_START_SEQUENCE > oldest) {
+                        uint64_t gap = KUI_FRAME_START_SEQUENCE - oldest;
+                        unsigned int first_logical = gap < sb->line_count
+                                ? (unsigned int)gap : sb->line_count;
+                        base = KUI_WRAP_INDEX.prefix[first_logical];
+                }
+        }
+        const char *line = sb->lines[(sb->head + logical) % KUI_MAX_SCROLL_LINES];
+        size_t n = strnlen(line, KUI_MAX_SCROLL_COLS), pos = 0;
+        while (pos < n && pos < anchor.byte) {
+                size_t end = kui_wrap_find_end(line, n, pos, cols);
+                if (end > anchor.byte) break;
+                pos = end > pos ? end : pos + 1;
+                while (pos < n && kui_is_space_byte((unsigned char)line[pos])) pos++;
+                segment++;
+        }
+        row = KUI_WRAP_INDEX.prefix[logical] + segment;
+        first = row > base ? row - base : 0;
+        total = KUI_WRAP_INDEX.total_rows - base;
+        sb->view_offset = total > first + height ? total - first - height : 0;
+}
+
 static void kui_render_page_owned(void) {
         unsigned rows, cols, old_rows, old_cols, content_top, content_bottom, prompt_row;
         int8_t first_time, size_changed;
         int banner_rows;
         KUI_SCROLLBACK *sb;
+        KUI_VIEW_ANCHOR resize_anchor = {0};
 
         kui_dispatch_events();
         if (!g_prog_data) return;
@@ -981,6 +1047,9 @@ static void kui_render_page_owned(void) {
         old_cols = g_prog_data->term_cols;
         first_time = (old_rows == 0 && old_cols == 0);
         size_changed = (first_time || old_rows != rows || old_cols != cols);
+        if (size_changed && !first_time)
+                resize_anchor = kui_anchor_before_resize(
+                        &g_prog_data->kui_scrollback, old_cols);
         if (size_changed) {
                 g_prog_data->term_rows = rows;
                 g_prog_data->term_cols = cols;
@@ -989,7 +1058,10 @@ static void kui_render_page_owned(void) {
                 KUI_INPUT_DIRTY = ISTRUE;
                 kui_reset_scroll_region();
         }
-        if (rows < KUI_MIN_ROWS) {
+        // @@ Do not attempt to fit a multi-line banner into an unusably
+        // narrow terminal, or overwrite the input row on a tiny terminal.
+        if (rows < KUI_MIN_ROWS || cols < 48) {
+                if (size_changed) KUI_SMALL = ISFALSE;
                 ui_screen_invalidate(&KUI_SCREEN);
                 kui_render_small(rows, cols);
                 return;
@@ -1013,6 +1085,17 @@ static void kui_render_page_owned(void) {
                 ? rows - (KUI_CHURNING_ACTIVE == ISTRUE ? 2U : 1U)
                 : rows;
         if (content_top > content_bottom) content_top = content_bottom;
+        if ((unsigned int)banner_rows >= rows - 1) {
+                KUI_SMALL = ISFALSE;
+                ui_screen_invalidate(&KUI_SCREEN);
+                kui_render_small(rows, cols);
+                return;
+        }
+        if (resize_anchor.valid)
+                kui_anchor_after_resize(&g_prog_data->kui_scrollback, cols,
+                        content_bottom - content_top + 1, resize_anchor);
+        KUI_LAYOUT_TOP = content_top;
+        KUI_LAYOUT_BOTTOM = content_bottom;
 
         KUI_SCREEN_ACTIVE = ISFALSE;
         KUI_SCREEN_FAILED = ISFALSE;
@@ -1025,6 +1108,8 @@ static void kui_render_page_owned(void) {
                 kui_scrollback_init(sb);
 
         (void)kui_scrollback_render(sb, content_top, content_bottom, cols);
+        if (sb->view_offset > KUI_VIEW_MAX_OFF)
+                sb->view_offset = KUI_VIEW_MAX_OFF;
         if (KUI_CHURNING_ACTIVE == ISTRUE)
                 kui_paint_row(rows - 1, KUI_CHURNING,
                         strnlen(KUI_CHURNING, sizeof(KUI_CHURNING)), "", 0);
