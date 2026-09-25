@@ -464,7 +464,6 @@ static void kui_scrollback_push(const char *line) {
         unsigned int idx;
         unsigned int cols;
         unsigned int added_rows;
-        unsigned int evicted_rows = 0;
         char tmp[KUI_MAX_SCROLL_COLS];
         size_t len;
         if (!g_prog_data || !line) return;
@@ -480,7 +479,6 @@ static void kui_scrollback_push(const char *line) {
                 sb->line_count++;
         } else {
                 idx = sb->head;
-                evicted_rows = kui_line_wrap_rows(sb->lines[idx], cols);
                 sb->head = (sb->head + 1) % KUI_MAX_SCROLL_LINES;
                 // @@ A complete wrap could make head/count look unchanged
                 // after many unseen evictions. Force one index rebuild.
@@ -500,7 +498,6 @@ static void kui_scrollback_push(const char *line) {
                 sb->view_offset = delta > UINT32_MAX - sb->view_offset
                         ? UINT32_MAX : sb->view_offset + delta;
         }
-        (void)evicted_rows;
 }
 
 static void kui_log_frame_header_if_needed(FILE *fp) {
