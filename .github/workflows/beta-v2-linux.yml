@@ -12,6 +12,8 @@ on:
       - 'tests/test-tui-wrap-index.sh'
       - 'tests/tui_phase4_queue.c'
       - 'tests/test-tui-thread-queue.sh'
+      - 'tests/tui_phase4_handoff.c'
+      - 'tests/test-tui-handoff.sh'
       - '.github/workflows/beta-v2-linux.yml'
   workflow_dispatch:
 
@@ -33,5 +35,7 @@ jobs:
         run: sh tests/test-tui-wrap-index.sh
       - name: Phase 4 concurrent queue stress
         run: sh tests/test-tui-thread-queue.sh
+      - name: Phase 4 renderer fork/restart regression
+        run: sh tests/test-tui-handoff.sh
       - name: Linux application build
         run: make OPENSSL_MODE=online
