@@ -10,6 +10,8 @@ on:
       - 'tests/test-tui-screen.sh'
       - 'tests/tui_phase3_wrap_index.c'
       - 'tests/test-tui-wrap-index.sh'
+      - 'tests/tui_phase4_queue.c'
+      - 'tests/test-tui-thread-queue.sh'
       - '.github/workflows/beta-v2-linux.yml'
   workflow_dispatch:
 
@@ -29,5 +31,7 @@ jobs:
         run: sh tests/test-tui-screen.sh
       - name: Phase 3 scrollback index regression
         run: sh tests/test-tui-wrap-index.sh
+      - name: Phase 4 concurrent queue stress
+        run: sh tests/test-tui-thread-queue.sh
       - name: Linux application build
         run: make OPENSSL_MODE=online
