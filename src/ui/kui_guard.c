@@ -14,16 +14,13 @@ static int8_t KUI_PROGRESS_ACTIVE = ISFALSE;
 static uint64_t KUI_PROGRESS_TOTAL = 0;
 static uint64_t KUI_PROGRESS_STARTED = 0;
 
+// @@ Preserve existing processing behavior without racing renderer output.
 static void kui_guard_mouse_disable(void) {
-        (void)write(STDOUT_FILENO, "\x1b[?1006l", 8);
-        (void)write(STDOUT_FILENO, "\x1b[?1002l", 8);
-        (void)write(STDOUT_FILENO, "\x1b[?1000l", 8);
+        kui_mouse_capture_set(ISFALSE);
 }
 
 static void kui_guard_mouse_enable(void) {
-        (void)write(STDOUT_FILENO, "\x1b[?1000h", 8);
-        (void)write(STDOUT_FILENO, "\x1b[?1002h", 8);
-        (void)write(STDOUT_FILENO, "\x1b[?1006h", 8);
+        kui_mouse_capture_set(ISTRUE);
 }
 
 void kui_processing_begin(void) {
