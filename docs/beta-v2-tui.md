@@ -129,3 +129,9 @@ Keep targeted Phase 1 Linux queue and input tests during development. Consolidat
 - The application thread continues to execute existing `cmd_scan()` paths synchronously. A separately scheduled command worker and concurrent raw input navigation during scans are not yet enabled; don't claim Phase 4 is fully complete until those have been addressed or explicitly scoped out.
 - `tests/tui_phase4_handoff.c` covers an ordered 1,000-event drain, worker join, fork and second worker startup. A matching standalone Linux test of the event-transport source passed with ASan/UBSan; the full integrated KUI/PTTY build and behavior are still unverified.
 - The branch CI workflow now runs the Phase 1–4 standalone regressions followed by a Linux `make OPENSSL_MODE=online` smoke attempt. A successful CI run has not been independently confirmed here.
+
+### Renderer shutdown ordering
+
+A render stop is enqueued by `ui_events_post_and_close()`: it atomically appends the final barrier and closes the producer side under the queue mutex. The renderer drains all preceding accepted events, acknowledges the stop, and is joined before the UI screen and runtime log are released. Late producers receive an error rather than posting behind STOP. On unexpectedly failed barrier initialization, the queue is closed and the renderer still joined.
+
+The standalone Linux handoff regression exercises the final barrier, late-producer rejection, drain/join, `fork()`, and restart under AddressSanitizer/UndefinedBehaviorSanitizer. This verifies event-transport lifecycle behavior but **not** a full running Kaminowaku/PTTY session. The PTY fork integration and FreeBSD toolchain must still pass their dedicated acceptance tests.
