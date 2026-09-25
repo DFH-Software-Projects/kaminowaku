@@ -23,6 +23,11 @@ void kui_input_scroll(int rows);
 void kui_input_bell(void);
 void kui_input_refresh_page(void);
 
+// @@ UI-owned terminal capture and explicit PTY fork lifecycle.
+void kui_mouse_capture_set(int enabled);
+void kui_fork_prepare(void);
+void kui_fork_parent(void);
+
 void kui_add_line(const char *fmt, ...);
 void kui_add_line_and_render(const char *fmt, ...);
 void kui_add_line_and_render_guard(const char *fmt, ...);
