@@ -23,6 +23,7 @@ typedef enum {
         UI_EVENT_CHURNING,
         UI_EVENT_CHURNING_CLEAR,
         UI_EVENT_MODE,
+        UI_EVENT_MODE_GET,
         UI_EVENT_MOUSE,
         UI_EVENT_STOP
 } ui_event_type_t;
