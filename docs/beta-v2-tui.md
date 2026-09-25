@@ -1,6 +1,6 @@
 # Beta V2 — TUI architecture and display modes
 
-Status: Phases 1 and 2 implemented on beta-v2. The renderer remains synchronous and scrollback layout is still recomputed per page; indexed navigation and display-mode switching are Phase 3 work.
+Status: Phases 1–3 implemented on beta-v2, pending full-application integration verification. Rendering and command execution are still synchronous; the dedicated renderer thread and external PTY handoff remain later-phase work.
 
 ## Objectives
 
@@ -83,7 +83,7 @@ Keep targeted Phase 1 Linux queue and input tests during development. Consolidat
 - The input prompt uses the terminal's last physical row. KUI caches the last rendered input text and viewport; cursor-only movements reposition the cursor without repainting the line.
 - Ordinary terminal shrinking no longer issues `ESC c` (terminal reset). Screen buffers and the banner invalidate on geometry changes; the small-terminal presentation clears only on entry to that state.
 - A failure to stage a desired screen falls back to the legacy per-row writer for that frame.
-- The existing frame-by-frame behavior is retained intentionally. Continuous scrollback, wrap indexing, anchoring and the display-mode command are Phase 3 work; dedicated threads and PTY terminal handoff remain later phases.
+- The original clear-on-command pathway remained during Phase 2. Phase 3 replaces it with persistent scrollback and logical frame slicing, without duplicating the compositor.
 
 ### Phase 2 verification
 
@@ -91,3 +91,18 @@ Keep targeted Phase 1 Linux queue and input tests during development. Consolidat
 - `tests/test-tui-screen.sh` compiles and runs the standalone screen regression. The Phase 2 test was also run locally on Linux with AddressSanitizer and UndefinedBehaviorSanitizer.
 - `.github/workflows/beta-v2-linux.yml` includes both Phase 1 and Phase 2 standalone regressions and attempts a full Linux smoke build. The full application build and interactive terminal behavior have **not** been independently verified in this environment; FreeBSD validation remains deferred.
 - Phase 5 will consolidate temporary harnesses and remove test products from the repository; retain durable UI regression coverage.
+
+## Phase 3 implementation notes
+
+- `src/ui/ui_wrap_index.h` and `src/ui/ui_wrap_index.c` maintain cached physical-row counts and prefix sums for the live 16,384-line scrollback buffer. Ordinary appends wrap only new lines; a single full-ring eviction shifts cached counts; width changes and multiple unseen evictions rebuild the index. A binary search maps a visible physical row to its logical line and wrapped segment.
+- `kui.c` uses this index for page positioning. `view_offset` is consistently interpreted as a physical-row offset from the visible tail and clamped using the displayed viewport's actual wrapped-row count. While the user is scrolled back, appended output adjusts that offset by newly added minus evicted physical rows.
+- The output store is retained across command boundaries. The renderer keeps an absolute output-sequence counter and records a frame-start sequence; **continuous** mode renders all retained scrollback, while **frame** mode renders only the active command's range. Switching modes does not delete stored scrollback or log entries.
+- Default mode is **continuous** at TUI entry. The built-in `ui` command shows the current mode and `ui mode continuous|frame` changes it. The command is processed by the shared command parser in every command context. Debug flags no longer implicitly choose a display mode.
+- `help` and `help ui` describe the new command. Existing notice styling and public `kui_add_line()` APIs are preserved.
+- The fixed input row and incremental compositor are shared by both modes. Interactive PTY output remains a Phase 5 integration item.
+
+### Phase 3 verification
+
+- `tests/tui_phase3_wrap_index.c` covers append, resize, full-ring eviction and binary-search row lookup. The standalone index test passed locally on Linux with AddressSanitizer and UndefinedBehaviorSanitizer against the available compatible local scrollback definition; branch CI compiles against the current 16,384-line definition.
+- `tests/test-tui-wrap-index.sh` and the beta-v2 Linux workflow include the index regression. Full application build, interactive mode switching, continuous scrollback under heavy scan output and native FreeBSD testing still require confirmation.
+- Temporary tests and generated outputs are subject to the Phase 5 cleanup decision; keep permanent regressions where practical.
