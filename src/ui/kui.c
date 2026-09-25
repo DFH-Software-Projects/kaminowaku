@@ -306,6 +306,8 @@ static unsigned int kui_scrollback_render(
         unsigned int max_off_rows;
         unsigned int first_row_idx;
         unsigned int bottom_row_idx;
+        unsigned int first_logical = 0;
+        unsigned int row_base = 0;
         /* Starting point in terms of logical line + byte pos */
         unsigned int start_logical = 0;
         size_t       start_pos = 0;
@@ -323,8 +325,26 @@ static unsigned int kui_scrollback_render(
                                 kui_paint_row(content_top + i, "", 0, "", 0);
                 return 0;
         }
-        /* Physical row accounting */
-        total_rows = kui_scrollback_total_rows(sb, cols);
+        // @@ Frame mode shows only output from the active command boundary.
+        (void)kui_scrollback_total_rows(sb, cols);
+        if (KUI_DISPLAY_MODE == KUI_DISPLAY_FRAME) {
+                uint64_t oldest = KUI_OUTPUT_SEQUENCE >= total_lines
+                        ? KUI_OUTPUT_SEQUENCE - total_lines : 0;
+                if (KUI_FRAME_START_SEQUENCE > oldest) {
+                        uint64_t gap = KUI_FRAME_START_SEQUENCE - oldest;
+                        first_logical = gap < total_lines
+                                ? (unsigned int)gap : total_lines;
+                }
+        }
+        row_base = KUI_WRAP_INDEX.prefix[first_logical];
+        total_rows = KUI_WRAP_INDEX.total_rows - row_base;
+        if (total_rows == 0) {
+                KUI_VIEW_MAX_OFF = 0;
+                if (KUI_SCREEN_ACTIVE != ISTRUE)
+                        for (i = 0; i < window_h; i++)
+                                kui_paint_row(content_top + i, "", 0, "", 0);
+                return 0;
+        }
         if (total_rows > window_h) max_off_rows = total_rows - window_h;
         else max_off_rows = 0;
         KUI_VIEW_MAX_OFF = max_off_rows;
@@ -339,7 +359,7 @@ static unsigned int kui_scrollback_render(
         // @@ Binary-search the cached prefix instead of re-wrapping old lines.
         {
                 unsigned int inside = 0;
-                if (ui_wrap_index_locate(&KUI_WRAP_INDEX, first_row_idx,
+                if (ui_wrap_index_locate(&KUI_WRAP_INDEX, row_base + first_row_idx,
                         &start_logical, &inside) == 0) {
                         unsigned int physical = (sb->head + start_logical) % KUI_MAX_SCROLL_LINES;
                         const char *line = sb->lines[physical];
@@ -414,30 +434,44 @@ static unsigned int kui_scrollback_render(
 static void kui_scrollback_push(const char *line) {
         KUI_SCROLLBACK *sb;
         unsigned int idx;
-        unsigned int max_off;
+        unsigned int cols;
+        unsigned int added_rows;
+        unsigned int evicted_rows = 0;
         char tmp[KUI_MAX_SCROLL_COLS];
         size_t len;
         if (!g_prog_data || !line) return;
         sb = &g_prog_data->kui_scrollback;
+        cols = g_prog_data->term_cols > 0 ? g_prog_data->term_cols : 80;
         len = strnlen(line, KUI_MAX_SCROLL_COLS - 1);
         if (len > 0 && line[len - 1] == '\n') len--;
         memcpy(tmp, line, len);
-        tmp[len] = 0x00;
+        tmp[len] = '\0';
+        added_rows = kui_line_wrap_rows(tmp, cols);
         if (sb->line_count < KUI_MAX_SCROLL_LINES) {
                 idx = (sb->head + sb->line_count) % KUI_MAX_SCROLL_LINES;
                 sb->line_count++;
         } else {
                 idx = sb->head;
+                evicted_rows = kui_line_wrap_rows(sb->lines[idx], cols);
                 sb->head = (sb->head + 1) % KUI_MAX_SCROLL_LINES;
-                if (sb->view_offset > 0)
-                        sb->view_offset--;
         }
 
         memcpy(sb->lines[idx], tmp, len);
-        sb->lines[idx][len] = 0x00;
-        max_off = (sb->line_count > 0) ? (sb->line_count - 1) : 0;
-        if (sb->view_offset > max_off)
-                sb->view_offset = max_off;
+        sb->lines[idx][len] = '\0';
+        KUI_OUTPUT_SEQUENCE++;
+
+        // @@ Maintain a fixed viewport when new scan results arrive.
+        if (sb->view_offset > 0) {
+                unsigned int next = sb->view_offset;
+                if (added_rows >= evicted_rows) {
+                        unsigned int delta = added_rows - evicted_rows;
+                        next = delta > UINT32_MAX - next ? UINT32_MAX : next + delta;
+                } else {
+                        unsigned int delta = evicted_rows - added_rows;
+                        next = delta > next ? 0 : next - delta;
+                }
+                sb->view_offset = next;
+        }
 }
 
 static void kui_log_frame_header_if_needed(FILE *fp) {
