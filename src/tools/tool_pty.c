@@ -46,6 +46,7 @@ typedef struct {
 static volatile sig_atomic_t TOOL_PTY_RESIZED = 0;
 
 #define TOOL_PTY_ARTIFACT_COLLISION_LIMIT 100
+#define TOOL_PTY_RENDER_INTERVAL_NS 33333333ULL // @@ At most 30 visual updates/second.
 
 static uint64_t tool_pty_now_ns(void) {
         struct timespec timestamp;
@@ -56,6 +57,14 @@ static uint64_t tool_pty_now_ns(void) {
                 (uint64_t)timestamp.tv_sec * 1000000000ULL
                 + (uint64_t)timestamp.tv_nsec
         );
+}
+
+// @@ The raw PTY artifact is always captured at full rate. Only screen
+// painting is throttled to avoid holding up high-volume external tools.
+static uint64_t tool_pty_monotonic_ns(void) {
+        struct timespec now;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) != NORMAL) return 0;
+        return (uint64_t)now.tv_sec * 1000000000ULL + (uint64_t)now.tv_nsec;
 }
 
 static int tool_pty_artifact_open(
@@ -354,17 +363,26 @@ static void tool_pty_stream_buffer(
         const char * tool_name,
         TOOL_PTY_STREAM * stream,
         const unsigned char * buffer,
-        c_size_t length
+        c_size_t length,
+        uint64_t * last_render_ns
 ) {
-        if (!tool_name || !stream || !buffer) return;
+        uint64_t now;
+        if (!tool_name || !stream || !buffer || !last_render_ns) return;
 
         for (c_size_t i = 0; i < length; i++) {
                 tool_pty_stream_byte(stream, buffer[i]);
         }
 
+        // @@ Only presentation is rate-limited. Stream commits and the raw
+        // tool artifact preserve every complete line and received byte.
+        now = tool_pty_monotonic_ns();
+        if (now != 0 && *last_render_ns != 0 && now >= *last_render_ns
+                && now - *last_render_ns < TOOL_PTY_RENDER_INTERVAL_NS)
+                return;
+
         tool_pty_stream_status(tool_name, stream);
         kui_render_page();
-        kui_processing_begin();
+        *last_render_ns = now;
 }
 
 static int tool_pty_open_master(
@@ -506,6 +524,7 @@ int tool_pty_run(
         int8_t wait_status_valid = ISTRUE;
         int8_t artifact_write_valid = ISTRUE;
         unsigned int child_drain_idle = 0;
+        uint64_t last_render_ns = 0;
         struct termios saved_terminal;
         int8_t saved_terminal_valid = ISFALSE;
         struct sigaction resize_action;
@@ -602,10 +621,13 @@ int tool_pty_run(
         kui_processing_begin();
         tool_pty_stream_status(tool_name, &stream);
         kui_render_page();
-        kui_processing_begin();
 
+        // @@ Stop and join the renderer before fork: no pthread-owned
+        // terminal, stdio or queue locks may be inherited by the child.
+        kui_fork_prepare();
         fflush(NULL);
         child = fork();
+        if (child != 0) kui_fork_parent();
         if (child < 0) {
                 if (resize_action_valid == ISTRUE) {
                         (void)sigaction(SIGWINCH, &old_resize_action, NULL);
@@ -664,6 +686,9 @@ int tool_pty_run(
                 if (TOOL_PTY_RESIZED) {
                         TOOL_PTY_RESIZED = 0;
                         (void)tool_pty_apply_winsize(master_fd);
+                        // @@ Reflow the Kaminowaku viewport even when the child
+                        // emits no bytes after SIGWINCH.
+                        kui_render_page();
                 }
 
                 poll_result = poll(pollfds, poll_count, 100);
@@ -735,7 +760,8 @@ int tool_pty_run(
                                         tool_name,
                                         &stream,
                                         output_buffer,
-                                        (c_size_t)output_length
+                                        (c_size_t)output_length,
+                                        &last_render_ns
                                 );
                         } else if (
                                 output_length == 0
@@ -826,6 +852,8 @@ int tool_pty_run(
                 saved_terminal_valid
         );
 
+        // @@ The raw output and final partial line have already been saved.
+        // A single final paint clears the status indicator.
         kui_clear_churning();
         kui_render_page();
         kui_processing_end();

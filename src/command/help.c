@@ -19,6 +19,11 @@ void help(_carry_forward * _prog_data) {
                         "help\t\t\t<-- Prints this help menu"
                         ANSI_COLOR_MAGENTA "\t\t] h" ANSI_COLOR_RESET
                 );
+                kui_add_line(
+                        ANSI_COLOR_MAGENTA "[\t" ANSI_COLOR_RESET
+                        "ui\t\t\t<-- Change continuous/frame display mode"
+                        ANSI_COLOR_MAGENTA "\t]" ANSI_COLOR_RESET
+                );
                 if (_prog_data->help_caller_state_manager == C_TOOL_CONTEXTUAL) {
                         kui_add_line(
                                 ANSI_COLOR_MAGENTA "[\t" ANSI_COLOR_RESET
@@ -170,6 +175,11 @@ void help(_carry_forward * _prog_data) {
                                 "dt / d / dd"
                                 ANSI_COLOR_RESET
                         );
+                } else if (strcmp((char*)_prog_data->cmd_tokens[1], "ui") == MATCH) {
+                        kui_add_line("< Usage: ui mode [ continuous | frame ]");
+                        kui_add_line(NOTICE_INFO "Continuous mode retains command output in one scrolling viewport.");
+                        kui_add_line(NOTICE_INFO "Frame mode displays only the active command's output.");
+                        kui_add_line(NOTICE_INFO "Run ui without arguments to display the current mode.");
                 } else if (strcmp((char*)_prog_data->cmd_tokens[1], "debug") == MATCH) {
                         kui_add_line("< Usage: debug [ on | off ]");
                         kui_add_line(NOTICE_INFO "This will toggle debug mode on or off.");

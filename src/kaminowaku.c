@@ -690,9 +690,8 @@ int kaminowaku (_carry_forward * _prog_data) {
                         disable_raw_mode();
                         memset(_prog_data->cmd_last, 0x00, INPUT_BLOCK);
                         strcats(_prog_data->cmd_last, sizeof(_prog_data->cmd_last), _prog_data->cmd_input);
-                        if(_prog_data->render_mode == RENDER_NORMAL) {
-                                kui_clear_output();
-                        }
+                        // @@ Beta V2: frames are presentation boundaries, not log deletion.
+                        // KUI's selected mode determines which recorded lines are visible.
                 } else {
                         printf("%s", _prog_data->prompt);
                         fflush(stdout);
@@ -784,10 +783,13 @@ int kaminowaku (_carry_forward * _prog_data) {
                         // Clean tokens and notify exit
                         input_tokens_free(_prog_data);
                         fprintf((FILE*)_prog_data->log, "--[%s]--\n" NOTICE_SUCCESS "Exit.\n", timestamp()); fflush((FILE*)_prog_data->log);
-                        fclose((FILE*)_prog_data->log);
+                        // @@ Drain queued UI output before closing the shared runtime log.
+                        kui_flush_log();
                         
-                        // @@ EXIT TUI
+                        // @@ EXIT TUI (also flushes pending UI output).
                         kui_exit();
+                        fclose((FILE*)_prog_data->log);
+                        _prog_data->log = NULL;
                         
                         if (_prog_data->debug_flag == ISTRUE) {
                                 printf(NOTICE_SUCCESS "Exit.\n");        

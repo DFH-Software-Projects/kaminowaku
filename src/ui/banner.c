@@ -34,11 +34,7 @@
 // Terminal helpers
 // ─────────────────────────────────────────────────────────────────────────────
 static inline void ui_move(int row, int col) { printf("\x1b[%d;%dH", row, col); }
-static inline void ui_hide_cursor(void)     { fputs("\x1b[?25l", stdout); }
-static inline void ui_show_cursor(void)     { fputs("\x1b[?25h", stdout); }
 static inline void ui_clear_eol(void)       { fputs("\x1b[K", stdout); }
-static inline void ui_clear_eos(void)       { fputs("\x1b[J", stdout); }
-static inline void ui_home(void)            { fputs("\x1b[H", stdout); }
 
 static int term_cols(void) {
         struct winsize ws = {0};
@@ -408,7 +404,7 @@ static void build_plain_exact(int cols, const char *content, char *out, size_t o
         if (!out || outsz == 0)
                 return;
 
-        int inner = cols;      // full width (no walls)
+        int inner = cols > 1 ? cols - 1 : cols; // Avoid pending terminal auto-wrap.
         if (inner < 0)
                 inner = 0;
 
@@ -762,8 +758,7 @@ int banner(_carry_forward * _prog_data) {
         for (int i = 0; i < MAX_BANNER_LINES; i++) curr_lines[i][0] = '\0';
         int curr_count = build_banner_lines(_prog_data, cols, curr_lines);
 
-        ui_hide_cursor();
-        ui_home();
+        // @@ The KUI renderer owns cursor visibility and placement.
 
         // If terminal width changed, force repaint all
         bool repaint_all = (prev_cols != cols) || (prev_count == 0);
@@ -785,11 +780,8 @@ int banner(_carry_forward * _prog_data) {
                 }
         }
 
-        // Move cursor just after header and clear the output region
-        ui_move(curr_count + 1, 1);
-        ui_clear_eos();
-
-        ui_show_cursor();
+        // @@ Do not clear the output region: the screen compositor owns it.
+        // The loop above already clears rows left behind when the banner shrinks.
         fflush(stdout);
 
         // Store current as previous for next diff

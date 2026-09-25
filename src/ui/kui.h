@@ -3,9 +3,31 @@
 #ifndef KUI_H
 #define KUI_H
 #include "data.h"
+// @@ Display mode is UI state, not part of debug or the command parser.
+typedef enum {
+        KUI_DISPLAY_CONTINUOUS = 0,
+        KUI_DISPLAY_FRAME = 1
+} kui_display_mode_t;
+
+kui_display_mode_t kui_display_mode_get(void);
+int kui_display_mode_set(kui_display_mode_t mode);
+
 void kui_enter(_carry_forward * _prog_data);
 void kui_exit(void);
 void kui_render_page(void);
+/* @@ Phase 1: KIO reports input; only KUI paints the prompt and viewport. */
+void kui_input_begin(void);
+void kui_input_update(const char *prompt, const char *input, unsigned int cursor);
+void kui_input_end(void);
+void kui_input_scroll(int rows);
+void kui_input_bell(void);
+void kui_input_refresh_page(void);
+
+// @@ UI-owned terminal capture and explicit PTY fork lifecycle.
+void kui_mouse_capture_set(int enabled);
+void kui_fork_prepare(void);
+void kui_fork_parent(void);
+
 void kui_add_line(const char *fmt, ...);
 void kui_add_line_and_render(const char *fmt, ...);
 void kui_add_line_and_render_guard(const char *fmt, ...);
