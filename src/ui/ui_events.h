@@ -1,12 +1,12 @@
 // Copyright 2026 Jamison A. Drapeau
-// @@ KUI event transport - synchronous in Beta V2 Phase 1.
+// @@ KUI ordered event transport; synchronized for future renderer/worker threads.
 #ifndef __UI_EVENTS__H
 #define __UI_EVENTS__H
 
 #include "data.h"
 
 // @@ Do not pass mutable command buffers across the UI boundary.
-// Phase 4 will add synchronization; producers and consumer share one thread today.
+// @@ Events are copied into bounded transport storage, never borrowed.
 #define UI_EVENT_CAPACITY 64
 
 typedef enum {
@@ -27,5 +27,9 @@ typedef struct {
 void ui_events_reset(void);
 int ui_events_post(const ui_event_t *event);
 int ui_events_next(ui_event_t *event);
+int ui_events_post_wait(const ui_event_t *event);
+int ui_events_wait_next(ui_event_t *event);
+void ui_events_close(void);
+unsigned int ui_events_pending(void);
 
 #endif
