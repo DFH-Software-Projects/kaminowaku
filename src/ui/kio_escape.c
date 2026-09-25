@@ -115,7 +115,8 @@ KIO_TOKEN kio_decoder_feed(KIO_DECODER *decoder, unsigned char byte) {
                                 return result;
                         }
                         if (decoder->length >= sizeof(decoder->buffer) - 1) {
-                                decoder->state = KIO_ST_DISCARD_CSI;
+                                decoder->state = byte >= 0x40 && byte <= 0x7e
+                                        ? KIO_ST_NORMAL : KIO_ST_DISCARD_CSI;
                                 decoder->length = 0;
                                 return result;
                         }
