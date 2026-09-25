@@ -27,6 +27,7 @@ Kaminowaku uses **NOSIX** for network I/O and **OpenSSL** for TLS and cryptograp
 - [Installation](#installation)
 - [Uninstalling Kaminowaku](#uninstalling-kaminowaku)
 - [Starting Kaminowaku](#starting-kaminowaku)
+- [Terminal UI and display modes](#terminal-ui-and-display-modes)
 - [Workflow](#workflow)
 - [Command reference](#command-reference)
 - [Projects](#projects)
@@ -214,6 +215,27 @@ Because Kaminowaku currently requires root, `~/.kaminowaku` normally refers to t
 
 The TUI expects a terminal at least 24 rows tall.
 
+## Terminal UI and display modes
+
+The `beta-v2` TUI has two operator-selectable display modes. **Continuous** is the default; it preserves scrollback across commands. **Frame** presents the current command frame rather than continuously accumulating the entire prior view. The `ui` command works from project, target and tool contexts:
+
+```text
+ui
+ui mode continuous
+ui mode frame
+```
+
+The terminal input decoder supports fragmented escape sequences, navigation/editing keys, mouse-wheel scrolling and bracketed paste. KUI owns prompt painting and screen updates through an ordered event queue and differential screen renderer. Interactive external tools use a dedicated PTY handoff so their terminal state is restored when control returns to Kaminowaku. `debug on/off` controls debugging; it is not the display-mode switch.
+
+For implementation details see the [TUI architecture and control flow](docs/LINK_GRAPH.md#ui-and-rendering-path). To exercise the permanent C regression suite on Linux or FreeBSD:
+
+```sh
+sh tests/run-tui-regressions.sh
+sh tests/run-tui-regressions.sh --bench
+```
+
+See [TUI regression coverage and manual acceptance](tests/README.md); real-terminal acceptance testing remains necessary.
+
 ## Workflow
 
 Kaminowaku is context-oriented. Operations become more specific as you move from a project into a target and, optionally, into an external-tool session.
@@ -284,7 +306,8 @@ Use `help` at any time to see commands valid for the current context. Use `help 
 | `scan ...` | Run TCP/UDP enumeration |
 | `book [name]` | List or execute Books |
 | `tool ...` | Register/manage tools or enter tool context |
-| `debug on\|off` | Toggle debug rendering and telemetry |
+| `ui` / `ui mode continuous\|frame` | Inspect or change terminal output mode (all contexts) |
+| `debug on\|off` | Toggle debug output |
 | `exit` | Exit Kaminowaku |
 
 ## Projects
@@ -916,7 +939,8 @@ The build uses a generated `.STAGE/` tree for header projection, object files, m
 
 ## Developer documentation
 
-- [Source link graph](docs/LINK_GRAPH.md) — source ownership, compile/link relationships, runtime flow, external dependency boundaries, and change-impact mapping.
+- [Source link graph](docs/LINK_GRAPH.md) — source ownership, beta-v2 TUI event/renderer control flow, compile/link relationships, external dependency boundaries, and change-impact mapping.
+- [TUI regression suite](tests/README.md) — permanent input, event, compositor, wrap-index, shutdown and PTY tests, benchmark runner and interactive acceptance checklist.
 - [Book language reference](docs/BOOK_LANGUAGE_V1.md) — supported Lua syntax, Book/module authoring contract, runtime boundaries, and guidance for Books versus external tools/scripts.
 - [Hard timeout guarantees](docs/HARD_TIMEOUTS.md) — monotonic receive deadlines, Book execution limits, regression checks, and native NOSIX rebuild requirements.
 
