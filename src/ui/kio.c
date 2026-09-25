@@ -21,45 +21,6 @@ static struct termios orig_termios;
 #define TAB_STOP 8
 #endif
 
-// Measure on-screen width of a string: strips ANSI CSI escapes and expands tabs.
-// NOTE: Treats bytes as width=1 (ASCII-safe). If you later allow wide chars,
-// swap the body for a wcwidth()/wcswidth()-based implementation.
-static int visible_width_noansi(const char *s)
-{
-        int w = 0;
-        const unsigned char *p = (const unsigned char *)s;
-
-        while (*p) {
-                if (*p == '\x1b') {
-                        // Skip CSI: ESC '[' ... final byte 0x40–0x7E
-                        p++;
-                        if (*p == '[') {
-                                p++;
-                                while (*p && !(*p >= 0x40 && *p <= 0x7E)) p++;
-                                if (*p) p++;      // consume final
-                        }
-                        continue;
-                }
-                if (*p == '\t') {
-                        int to_next = TAB_STOP - (w % TAB_STOP);
-                        if (to_next < 0) to_next = 0;
-                        w += to_next;
-                        p++;
-                        continue;
-                }
-                if (*p == '\r' || *p == '\n') {
-                        // Keep it simple: treat as column reset on the same logical line.
-                        // (If you *do* embed newlines in prompts, consider tracking rows too.)
-                        w = 0;
-                        p++;
-                        continue;
-                }
-                w++;
-                p++;
-        }
-        return w;
-}
-
 /* ================== Terminal mode ================== */
 
 void disable_raw_mode(void) {
@@ -76,59 +37,6 @@ void enable_raw_mode(void) {
         raw.c_cc[VTIME] = 0;  // no read timeout
         tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
-
-/* ================== Redraw ================== */
-
-static void redraw_line(const char *prompt, const char *INPUT_BUFFER, int cursor) {
-        struct winsize ws;
-        ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
-        int term_width = ws.ws_col > 0 ? ws.ws_col : 80;
-
-        int prompt_vis = visible_width_noansi(prompt);
-        int available  = term_width - prompt_vis;   // space left for input text
-
-        if (available < 1)
-                available = 1;                      // always leave *some* room
-
-        int len = (int)strlen(INPUT_BUFFER);
-        if (cursor < 0)
-                cursor = 0;
-        if (cursor > len)
-                cursor = len;
-
-        /* Decide which slice of INPUT_BUFFER to show so that the cursor stays visible. */
-        int start = 0;
-        if (cursor >= available) {
-                start = cursor - (available - 1);
-                if (start < 0)
-                        start = 0;
-        }
-
-        int view_len = len - start;
-        if (view_len > available)
-                view_len = available;
-
-        /* Restore anchor, clear the line, and draw prompt + visible slice. */
-        printf("\033[u");          /* restore saved cursor (anchor at line start) */
-        printf("\r\033[K");        /* CR + clear to end of line */
-        printf("%s", prompt);
-        if (view_len > 0)
-                fwrite(INPUT_BUFFER + start, 1, (size_t)view_len, stdout);
-
-        /* Move cursor to the correct spot within the visible slice. */
-        int display_cursor = cursor - start;        /* index within the visible window */
-        int target_col     = prompt_vis + display_cursor;
-
-        /* We are currently at column (prompt_vis + view_len); move left if needed. */
-        int current_col = prompt_vis + view_len;
-        int move_left   = current_col - target_col;
-
-        if (move_left > 0)
-                printf("\033[%dD", move_left);
-
-        fflush(stdout);
-}
-
 
 // Drain/discard stdin until it's been quiet for idle_ms.
 // Hard-caps total bytes consumed to avoid pathological hangs.
@@ -260,14 +168,10 @@ static void command_history_notice(
         if (!_prog_data || !message) return;
 
         kui_add_line("%s", message);
-        kui_render_page();
+        kui_input_refresh_page();
 
-        /* kui_render_page() places us back on the prompt row. Replace the old
-         * saved cursor anchor so redraw_line() tracks the newly rendered page.
-         */
-        printf("\033[s");
-        fflush(stdout);
-        redraw_line(_prog_data->prompt, _prog_data->cmd_input, cursor);
+        /* The renderer re-anchors the prompt after painting the new page. */
+        kui_input_update((char *)_prog_data->prompt, (char *)_prog_data->cmd_input, (unsigned int)cursor);
 }
 
 /* ================== Main line input ================== */
@@ -281,11 +185,9 @@ int read_line(_carry_forward *_prog_data) {
         memset(_prog_data->cmd_input, 0x00, INPUT_BLOCK);
         memset(_prog_data->cmd_history[0], 0x00, INPUT_BLOCK);
 
-        /* Save anchor */
-        printf("\033[s");
-        fflush(stdout);
-
-        redraw_line(_prog_data->prompt, _prog_data->cmd_input, cursor);
+        /* @@ KUI owns both the prompt anchor and all terminal writes. */
+        kui_input_begin();
+        kui_input_update((char *)_prog_data->prompt, (char *)_prog_data->cmd_input, (unsigned int)cursor);
 
         for (;;) {
                 
@@ -297,8 +199,10 @@ int read_line(_carry_forward *_prog_data) {
                 ssize_t n = read_input_burst(tmp_buffer, sizeof(tmp_buffer));
                 
                 
-                if (n <= 0)
+                if (n <= 0) {
+                        kui_input_end();
                         return -1;
+                }
 
                 for (ssize_t i = 0; i < n; i++) {
                         unsigned char key = tmp_buffer[i];
@@ -318,7 +222,8 @@ int read_line(_carry_forward *_prog_data) {
 
                                 if (length_marker < INPUT_BLOCK - 1)
                                         _prog_data->cmd_input[length_marker++] = '\n';
-                                _prog_data->cmd_input[length_marker] = '\0';                                
+                                _prog_data->cmd_input[length_marker] = '\0';
+                                kui_input_end();
                                 return length_marker;
                         }
 
@@ -346,7 +251,7 @@ int read_line(_carry_forward *_prog_data) {
                                         cursor = 0;
                                 
                                         /* Immediate visual feedback */
-                                        redraw_line(_prog_data->prompt, _prog_data->cmd_input, cursor);
+                                        kui_input_update((char *)_prog_data->prompt, (char *)_prog_data->cmd_input, (unsigned int)cursor);
                                 }
                                 continue;
                         }
@@ -401,12 +306,10 @@ int read_line(_carry_forward *_prog_data) {
                                         
                                                                 if (b == 64 && action == 'M') {
                                                                         /* Scroll wheel up */
-                                                                        kui_scrollback_scroll_by(&_prog_data->kui_scrollback, +3);
-                                                                        kui_render_page();
+                                                                        kui_input_scroll(+3);
                                                                 } else if (b == 65 && action == 'M') {
                                                                         /* Scroll wheel down */
-                                                                        kui_scrollback_scroll_by(&_prog_data->kui_scrollback, -3);
-                                                                        kui_render_page();
+                                                                        kui_input_scroll(-3);
                                                                 }
                                                         }
                                         
@@ -444,12 +347,10 @@ int read_line(_carry_forward *_prog_data) {
                                                                 int wheel = btn & 0x0F;
                                                                 if (wheel == 0) {
                                                                         /* wheel up */
-                                                                        kui_scrollback_scroll_by(&_prog_data->kui_scrollback, +3);
-                                                                        kui_render_page();
+                                                                        kui_input_scroll(+3);
                                                                 } else if (wheel == 1) {
                                                                         /* wheel down */
-                                                                        kui_scrollback_scroll_by(&_prog_data->kui_scrollback, -3);
-                                                                        kui_render_page();
+                                                                        kui_input_scroll(-3);
                                                                 }
                                                         }
 
@@ -624,11 +525,11 @@ int read_line(_carry_forward *_prog_data) {
                                         cursor++;
                                         _prog_data->cmd_input[length_marker] = '\0';
                                 } else {
-                                        write(STDOUT_FILENO, "\a", 1);
+                                        kui_input_bell();
                                 }
                         }
                 }
 
-                redraw_line(_prog_data->prompt, _prog_data->cmd_input, cursor);
+                kui_input_update((char *)_prog_data->prompt, (char *)_prog_data->cmd_input, (unsigned int)cursor);
         }
 }
