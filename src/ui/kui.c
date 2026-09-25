@@ -845,11 +845,29 @@ static int kui_render_thread_start(void) {
 // @@ Joining before fork keeps pthread mutexes/stdio out of the child.
 static void kui_render_thread_stop(void) {
         ui_event_t event = {0};
+        KUI_EVENT_ACK ack;
         if (KUI_RENDER_RUNNING != ISTRUE) return;
+        if (pthread_mutex_init(&ack.lock, NULL) != 0) return;
+        if (pthread_cond_init(&ack.ready, NULL) != 0) {
+                pthread_mutex_destroy(&ack.lock);
+                return;
+        }
+        ack.done = ISFALSE;
+        ack.result = -1;
         event.type = UI_EVENT_STOP;
-        (void)kui_post_event_sync(&event);
+        event.completion = &ack;
+
+        // @@ Atomic close prevents another producer queuing work after STOP.
+        if (ui_events_post_and_close(&event) == 0) {
+                pthread_mutex_lock(&ack.lock);
+                while (ack.done != ISTRUE)
+                        pthread_cond_wait(&ack.ready, &ack.lock);
+                pthread_mutex_unlock(&ack.lock);
+        }
         (void)pthread_join(KUI_RENDER_THREAD, NULL);
         KUI_RENDER_RUNNING = ISFALSE;
+        pthread_cond_destroy(&ack.ready);
+        pthread_mutex_destroy(&ack.lock);
         ui_events_reset();
 }
 
