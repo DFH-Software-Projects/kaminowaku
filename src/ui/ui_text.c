@@ -8,6 +8,81 @@
 
 #define UI_TEXT_TAB_STOP 8U
 
+void ui_text_style_reset(UI_TEXT_STYLE *state) {
+        if (!state) return;
+        state->length = 0;
+        state->sgr[0] = '\0';
+}
+
+/* @@ Replay only complete SGR escapes. Keep the original ordering so
+ * foreground, background, bold, and 24-bit colors combine as emitted.
+ * Each physical row starts with an explicit reset, then this replay.
+ */
+void ui_text_style_feed(UI_TEXT_STYLE *state, const char *source, size_t length) {
+        size_t i = 0;
+        if (!state || !source) return;
+        while (i < length) {
+                size_t start, end;
+                int valid = 1;
+                if ((unsigned char)source[i++] != 0x1b) continue;
+                start = i - 1;
+                if (i >= length) break;
+                if (source[i] == ']') {
+                        /* OSC is unrelated to SGR. Skip embedded CSI-like text. */
+                        i++;
+                        while (i < length) {
+                                if (source[i++] == '\a') break;
+                                if (source[i - 1] == '\x1b'
+                                                && i < length && source[i] == '\\') {
+                                        i++;
+                                        break;
+                                }
+                        }
+                        continue;
+                }
+                if (source[i] != '[') {
+                        i++;
+                        continue;
+                }
+                i++;
+                while (i < length && (unsigned char)source[i] >= 0x20
+                                && (unsigned char)source[i] <= 0x3f) {
+                        unsigned char c = (unsigned char)source[i++];
+                        if (!((c >= '0' && c <= '9') || c == ';' || c == ':'))
+                                valid = 0;
+                }
+                if (i >= length) break; /* Truncated CSI. */
+                if ((unsigned char)source[i] < 0x40
+                                || (unsigned char)source[i] > 0x7e) continue;
+                if (source[i++] != 'm' || !valid) continue;
+                end = i;
+                /* A leading SGR reset discards all earlier styling.
+                 * Do not confuse zero RGB components with a reset. */
+                size_t param = start + 2;
+                if (param + 1 == end
+                                || (param < end && source[param] == '0'
+                                                && (param + 1 == end - 1
+                                                        || source[param + 1] == ';'
+                                                        || source[param + 1] == ':'))) {
+                        state->length = 0;
+                        state->sgr[0] = '\0';
+                        /* ESC[m and ESC[0m are complete resets, no replay needed. */
+                        if (param + 1 == end
+                                        || (source[param] == '0' && param + 2 == end))
+                                continue;
+                }
+                if (end - start >= sizeof(state->sgr)) continue;
+                if (state->length + (end - start) >= sizeof(state->sgr)) {
+                        /* Bound replay length even for streams with no reset.
+                         * Prefer the newest SGR when the previous history overflows. */
+                        state->length = 0;
+                }
+                memcpy(state->sgr + state->length, source + start, end - start);
+                state->length += end - start;
+                state->sgr[state->length] = '\0';
+        }
+}
+
 unsigned int ui_text_tab_width(unsigned int column) {
         return UI_TEXT_TAB_STOP - column % UI_TEXT_TAB_STOP;
 }

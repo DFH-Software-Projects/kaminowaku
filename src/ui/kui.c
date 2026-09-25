@@ -72,6 +72,7 @@ static int KUI_SMALL = ISFALSE;
 static unsigned int KUI_LAYOUT_TOP = 0;
 static unsigned int KUI_LAYOUT_BOTTOM = 0;
 static unsigned int KUI_LAST_PROMPT_ROW = 0;
+static UI_TEXT_STYLE KUI_RING_BASE_STYLE;
 static _Thread_local int KUI_RENDER_CONTEXT = ISFALSE;
 
 typedef struct {
@@ -291,34 +292,7 @@ static unsigned int kui_scrollback_total_rows(const KUI_SCROLLBACK *sb, unsigned
         return KUI_WRAP_INDEX.total_rows;
 }
 
-// @@ Preserve active ANSI colors when a physical row starts mid-line.
-// Only SGR sequences affect glyph style; cursor/mouse control bytes are never cached.
-static size_t kui_style_before(const char *line, size_t pos, char *style, size_t cap) {
-        size_t used = 0;
-        size_t i = 0;
-        if (!line || !style || cap == 0) return 0;
-        while (i < pos) {
-                if ((unsigned char)line[i] != 0x1b || i + 1 >= pos || line[i + 1] != '[') {
-                        i++;
-                        continue;
-                }
-                size_t n = kui_ansi_seq_len(line, i, pos);
-                if (n < 3 || i + n > pos) break;
-                if (line[i + n - 1] == 'm') {
-                        if (line[i + 2] == 'm' || line[i + 2] == '0'
-                                && (line[i + 3] == 'm' || line[i + 3] == ';'))
-                                used = 0;
-                        if (used + n < cap) {
-                                memcpy(style + used, line + i, n);
-                                used += n;
-                        }
-                }
-                i += n;
-        }
-        style[used] = '\0';
-        return used;
-}
-
+/* @@ Scrollback rendering carries the SGR state through every logical line. */
 // @@ Render rows into the desired screen. A fallback retains legacy painting
 // when allocation cannot support unusually large terminal dimensions.
 static void kui_paint_row(unsigned int row, const char *text, size_t length,
@@ -360,6 +334,7 @@ static unsigned int kui_scrollback_render(
         unsigned int start_logical = 0;
         size_t       start_pos = 0;
         unsigned int i;
+        UI_TEXT_STYLE current_style = KUI_RING_BASE_STYLE;
         if (!sb) return 0;
         if (content_bottom < content_top) return 0;
         window_h = content_bottom - content_top + 1;
@@ -422,6 +397,20 @@ static unsigned int kui_scrollback_render(
                         start_pos = pos;
                 }
         }
+        /* Replay SGR from preceding logical lines, including off-screen rows.
+         * A standalone ESC[36m on a title's top border must color the next
+         * two logical lines even though each painted row resets the terminal. */
+        for (i = 0; i < start_logical; i++) {
+                unsigned int physical = (sb->head + i) % KUI_MAX_SCROLL_LINES;
+                const char *line = sb->lines[physical];
+                ui_text_style_feed(&current_style, line,
+                                strnlen(line, KUI_MAX_SCROLL_COLS));
+        }
+        if (start_pos && start_logical < total_lines) {
+                const char *line = sb->lines[(sb->head + start_logical)
+                                % KUI_MAX_SCROLL_LINES];
+                ui_text_style_feed(&current_style, line, start_pos);
+        }
         /* Render forward from (start_logical, start_pos) until window_h rows filled */
         {
                 unsigned int row_used = 0;
@@ -443,14 +432,12 @@ static unsigned int kui_scrollback_render(
                         }
                         while (pos < n && row_used < window_h) {
                                 size_t end = kui_wrap_find_end(s, n, pos, cols);
-                                char style[UI_SCREEN_MAX_STYLE_BYTES];
-                                size_t style_length;
                                 if (end <= pos) end = pos + 1;
-                                // @@ The wrapper already guarantees glyph boundaries.
-                                // Carry ANSI SGR styling across physical row wraps.
-                                style_length = kui_style_before(s, pos, style, sizeof(style));
+                                // @@ A physical row starts at a known SGR state.
+                                // Update that state after the exact segment rendered.
                                 kui_paint_row(content_top + row_used, s + pos,
-                                        end - pos, style, style_length);
+                                        end - pos, current_style.sgr, current_style.length);
+                                ui_text_style_feed(&current_style, s + pos, end - pos);
                                 row_used++;
                                 pos = end;
                                 while (pos < n && kui_is_space_byte((unsigned char)s[pos])) pos++;
@@ -498,6 +485,9 @@ static void kui_scrollback_push_span(const char *line, size_t span_len) {
                 sb->line_count++;
         } else {
                 idx = sb->head;
+                // @@ Preserve SGR state when the oldest ring line is evicted.
+                ui_text_style_feed(&KUI_RING_BASE_STYLE, sb->lines[idx],
+                                strnlen(sb->lines[idx], KUI_MAX_SCROLL_COLS));
                 sb->head = (sb->head + 1) % KUI_MAX_SCROLL_LINES;
                 // @@ A complete wrap could make head/count look unchanged
                 // after many unseen evictions. Force one index rebuild.
@@ -758,6 +748,7 @@ static void kui_handle_event(const ui_event_t *event) {
                 case UI_EVENT_CLEAR:
                         if (g_prog_data) {
                                 kui_scrollback_init(&g_prog_data->kui_scrollback);
+                                ui_text_style_reset(&KUI_RING_BASE_STYLE);
                                 ui_wrap_index_reset(&KUI_WRAP_INDEX);
                                 KUI_VIEW_MAX_OFF = 0;
                                 KUI_OUTPUT_SEQUENCE = 0;
@@ -1243,6 +1234,7 @@ void kui_enter(_carry_forward * _prog_data) {
         if (_prog_data && !g_prog_data) g_prog_data = _prog_data;
         ui_events_reset();
         ui_wrap_index_reset(&KUI_WRAP_INDEX);
+        ui_text_style_reset(&KUI_RING_BASE_STYLE);
         KUI_VIEW_MAX_OFF = 0;
         KUI_DISPLAY_MODE = KUI_DISPLAY_CONTINUOUS;
         KUI_OUTPUT_SEQUENCE = 0;

@@ -39,6 +39,36 @@ int main(void) {
         length = ui_text_render_row(box, strlen(box), row, sizeof(row));
         assert(length == strlen(box) && strcmp(row, box) == 0);
 
+        /* @@ Kami's COMMAND LIST box begins color on line one, resets it
+         * around title text on line two, then carries it to line three. */
+        UI_TEXT_STYLE colors;
+        ui_text_style_reset(&colors);
+        assert(colors.length == 0);
+        const char *top = "\x1b[36m┏━━━━━━━━━━━━━━┓";
+        ui_text_style_feed(&colors, top, strlen(top));
+        assert(strcmp(colors.sgr, "\x1b[36m") == 0);
+        const char *middle = "┃\x1b[0m COMMAND LIST \x1b[36m┃";
+        ui_text_style_feed(&colors, middle, strlen(middle));
+        assert(strcmp(colors.sgr, "\x1b[36m") == 0);
+        const char *bottom = "┗━━━━━━━━━━━━━━┛\x1b[0m";
+        ui_text_style_feed(&colors, bottom, strlen(bottom));
+        assert(colors.length == 0);
+
+        /* @@ Scrollback replays SGR through hidden logical rows. */
+        ui_text_style_feed(&colors, "\x1b[1m\x1b[38;2;48;0;48m",
+                        strlen("\x1b[1m\x1b[38;2;48;0;48m"));
+        assert(strstr(colors.sgr, "\x1b[1m"));
+        assert(strstr(colors.sgr, "\x1b[38;2;48;0;48m"));
+        ui_text_style_feed(&colors, "\x1b]0;title \x1b[31m\a",
+                        strlen("\x1b]0;title \x1b[31m\a"));
+        assert(!strstr(colors.sgr, "\x1b[31m"));
+        ui_text_style_feed(&colors, "\x1b[39m", strlen("\x1b[39m"));
+        assert(strstr(colors.sgr, "\x1b[39m"));
+        ui_text_style_feed(&colors, "\x1b[0;36m", strlen("\x1b[0;36m"));
+        assert(strcmp(colors.sgr, "\x1b[0;36m") == 0);
+        ui_text_style_feed(&colors, "\x1b[m", strlen("\x1b[m"));
+        assert(colors.length == 0);
+
         assert(pipe(fd) == 0);
         assert(ui_screen_init(&screen, fd[1]) == 0);
         assert(ui_screen_begin(&screen, 30, 100, 7, 30) == 0);
