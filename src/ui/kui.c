@@ -16,6 +16,7 @@ Little note about this code:
 
 #include "kui.h"
 #include "ui_events.h"
+#include "ui_screen.h"
 #include "banner.h"
 #include "helpers.h"
 
@@ -49,18 +50,14 @@ Little note about this code:
 static _carry_forward *g_prog_data = NULL;
 static char KUI_CHURNING[KUI_MAX_SCROLL_COLS];
 static int8_t KUI_CHURNING_ACTIVE = ISFALSE;
+static UI_SCREEN KUI_SCREEN;
+static int KUI_SCREEN_READY = ISFALSE;
+static int KUI_SCREEN_ACTIVE = ISFALSE;
+static int KUI_SCREEN_FAILED = ISFALSE;
 
 /* ------------------------------------------------------------------------ */
 /* Low-level terminal helpers                                               */
 /* ------------------------------------------------------------------------ */
-
-static void kui_set_scroll_region(unsigned top, unsigned bottom) {
-	char buf[64];
-	int n;
-	if (top == 0 || bottom == 0 || top >= bottom) return;
-	n = snprintf(buf, sizeof(buf), "\x1b[%u;%ur", top, bottom);
-	if (n > 0 && (size_t)n < sizeof(buf)) (void)write(STDOUT_FILENO, buf, (size_t)n);
-}
 
 static void kui_reset_scroll_region(void) {
 	(void)write(STDOUT_FILENO, "\x1b[r", 3);
@@ -251,6 +248,53 @@ static unsigned int kui_scrollback_total_rows(const KUI_SCROLLBACK *sb, unsigned
         return sum;
 }
 
+// @@ Preserve active ANSI colors when a physical row starts mid-line.
+// Only SGR sequences affect glyph style; cursor/mouse control bytes are never cached.
+static size_t kui_style_before(const char *line, size_t pos, char *style, size_t cap) {
+        size_t used = 0;
+        size_t i = 0;
+        if (!line || !style || cap == 0) return 0;
+        while (i < pos) {
+                if ((unsigned char)line[i] != 0x1b || i + 1 >= pos || line[i + 1] != '[') {
+                        i++;
+                        continue;
+                }
+                size_t n = kui_ansi_seq_len(line, i, pos);
+                if (n < 3 || i + n > pos) break;
+                if (line[i + n - 1] == 'm') {
+                        if (line[i + 2] == 'm' || line[i + 2] == '0'
+                                && (line[i + 3] == 'm' || line[i + 3] == ';'))
+                                used = 0;
+                        if (used + n < cap) {
+                                memcpy(style + used, line + i, n);
+                                used += n;
+                        }
+                }
+                i += n;
+        }
+        style[used] = '\0';
+        return used;
+}
+
+// @@ Render rows into the desired screen. A fallback retains legacy painting
+// when allocation cannot support unusually large terminal dimensions.
+static void kui_paint_row(unsigned int row, const char *text, size_t length,
+        const char *style, size_t style_length) {
+        if (KUI_SCREEN_ACTIVE == ISTRUE) {
+                if (ui_screen_set(&KUI_SCREEN, row, text, length, style, style_length) == 0)
+                        return;
+                KUI_SCREEN_FAILED = ISTRUE;
+                return;
+        }
+        kui_goto(row, 1);
+        (void)write(STDOUT_FILENO, "\x1b[0m", 4);
+        if (style && style_length)
+                (void)write(STDOUT_FILENO, style, style_length);
+        if (text && length)
+                (void)write(STDOUT_FILENO, text, length);
+        (void)write(STDOUT_FILENO, "\x1b[0m\x1b[K", 7);
+}
+
 static unsigned int kui_scrollback_render(
         const KUI_SCROLLBACK *sb,
         unsigned int content_top,
@@ -274,10 +318,10 @@ static unsigned int kui_scrollback_render(
         if (window_h == 0) return 0;
         total_lines = sb->line_count;
         if (total_lines == 0) {
-                for (i = 0; i < window_h; i++) {
-                        kui_goto(content_top + i, 1);
-                        (void)write(STDOUT_FILENO, "\x1b[K", 3);
-                }
+                // @@ Desired rows are already blank in the virtual screen.
+                if (KUI_SCREEN_ACTIVE != ISTRUE)
+                        for (i = 0; i < window_h; i++)
+                                kui_paint_row(content_top + i, "", 0, "", 0);
                 return 0;
         }
         /* Physical row accounting */
@@ -336,8 +380,7 @@ static unsigned int kui_scrollback_render(
                         n = strnlen(s, KUI_MAX_SCROLL_COLS);
                         /* Empty line consumes one physical row */
                         if (n == 0) {
-                                kui_goto(content_top + row_used, 1);
-                                (void)write(STDOUT_FILENO, "\x1b[K", 3);
+                                kui_paint_row(content_top + row_used, "", 0, "", 0);
                                 row_used++;
                                 logical++;
                                 pos = 0;
@@ -345,29 +388,14 @@ static unsigned int kui_scrollback_render(
                         }
                         while (pos < n && row_used < window_h) {
                                 size_t end = kui_wrap_find_end(s, n, pos, cols);
-                                size_t scan;
-                                unsigned int vis_used = 0;
-                                int gw;
-                                size_t glen;
+                                char style[UI_SCREEN_MAX_STYLE_BYTES];
+                                size_t style_length;
                                 if (end <= pos) end = pos + 1;
-                                kui_goto(content_top + row_used, 1);
-                                /* write [pos, end), preserving ANSI sequences and UTF-8 codepoints */
-                                scan = pos;
-                                while (scan < end) {
-                                        if ((unsigned char)s[scan] == 0x1b) {
-                                                size_t esc_len = kui_ansi_seq_len(s, scan, end);
-                                                if (esc_len == 0) esc_len = 1;
-                                                (void)write(STDOUT_FILENO, s + scan, esc_len);
-                                                scan += esc_len;
-                                                continue;
-                                        }
-                                        kui_next_glyph(s, scan, end, &gw, &glen);
-                                        if (glen == 0) break;
-                                        (void)write(STDOUT_FILENO, s + scan, glen);
-                                        vis_used += (unsigned int)gw;
-                                        scan += glen;
-                                }
-                                (void)write(STDOUT_FILENO, "\x1b[K", 3);
+                                // @@ The wrapper already guarantees glyph boundaries.
+                                // Carry ANSI SGR styling across physical row wraps.
+                                style_length = kui_style_before(s, pos, style, sizeof(style));
+                                kui_paint_row(content_top + row_used, s + pos,
+                                        end - pos, style, style_length);
                                 row_used++;
                                 pos = end;
                                 while (pos < n && kui_is_space_byte((unsigned char)s[pos])) pos++;
@@ -378,8 +406,7 @@ static unsigned int kui_scrollback_render(
                 }
                 /* Clear remainder of content window */
                 while (row_used < window_h) {
-                        kui_goto(content_top + row_used, 1);
-                        (void)write(STDOUT_FILENO, "\x1b[K", 3);
+                        kui_paint_row(content_top + row_used, "", 0, "", 0);
                         row_used++;
                 }
                 /*
@@ -456,6 +483,11 @@ static int KUI_PUMPING = ISFALSE;
 static char KUI_INPUT_TEXT[INPUT_BLOCK];
 static char KUI_INPUT_PROMPT[DOUBLE_BLOCK];
 static unsigned int KUI_INPUT_CURSOR = 0;
+static int KUI_INPUT_DIRTY = ISTRUE;
+static char KUI_INPUT_LAST_TEXT[INPUT_BLOCK];
+static char KUI_INPUT_LAST_PROMPT[DOUBLE_BLOCK];
+static int KUI_INPUT_LAST_WIDTH = 0;
+static int KUI_INPUT_LAST_START = -1;
 
 static int visible_width_noansi(const char *s)
 {
@@ -522,6 +554,19 @@ static void kui_input_draw(const char *prompt, const char *INPUT_BUFFER, int cur
         if (view_len > available)
                 view_len = available;
 
+        // @@ A cursor-only edit never repaints the input text.
+        int display_cursor = cursor - start;
+        int target_col = prompt_vis + display_cursor;
+        if (KUI_INPUT_DIRTY != ISTRUE && KUI_INPUT_LAST_WIDTH == term_width
+                && KUI_INPUT_LAST_START == start
+                && strcmp(KUI_INPUT_LAST_PROMPT, prompt) == 0
+                && strcmp(KUI_INPUT_LAST_TEXT, INPUT_BUFFER) == 0) {
+                printf("\033[u\r");
+                if (target_col > 0) printf("\033[%dC", target_col);
+                fflush(stdout);
+                return;
+        }
+
         /* Restore anchor, clear the line, and draw prompt + visible slice. */
         printf("\033[u");          /* restore saved cursor (anchor at line start) */
         printf("\r\033[K");        /* CR + clear to end of line */
@@ -530,8 +575,7 @@ static void kui_input_draw(const char *prompt, const char *INPUT_BUFFER, int cur
                 fwrite(INPUT_BUFFER + start, 1, (size_t)view_len, stdout);
 
         /* Move cursor to the correct spot within the visible slice. */
-        int display_cursor = cursor - start;        /* index within the visible window */
-        int target_col     = prompt_vis + display_cursor;
+        /* Position already computed before checking the cached input. */
 
         /* We are currently at column (prompt_vis + view_len); move left if needed. */
         int current_col = prompt_vis + view_len;
@@ -541,6 +585,11 @@ static void kui_input_draw(const char *prompt, const char *INPUT_BUFFER, int cur
                 printf("\033[%dD", move_left);
 
         fflush(stdout);
+        snprintf(KUI_INPUT_LAST_PROMPT, sizeof(KUI_INPUT_LAST_PROMPT), "%s", prompt);
+        snprintf(KUI_INPUT_LAST_TEXT, sizeof(KUI_INPUT_LAST_TEXT), "%s", INPUT_BUFFER);
+        KUI_INPUT_LAST_WIDTH = term_width;
+        KUI_INPUT_LAST_START = start;
+        KUI_INPUT_DIRTY = ISFALSE;
 }
 
 static void kui_input_anchor(void) {
@@ -594,6 +643,7 @@ static void kui_post_event(const ui_event_t *event) {
 
 void kui_input_begin(void) {
         KUI_INPUT_ACTIVE = ISTRUE;
+        KUI_INPUT_DIRTY = ISTRUE;
         kui_input_anchor();
 }
 
@@ -609,6 +659,7 @@ void kui_input_update(const char *prompt, const char *input, unsigned int cursor
 
 void kui_input_end(void) {
         KUI_INPUT_ACTIVE = ISFALSE;
+        KUI_INPUT_DIRTY = ISTRUE;
 }
 
 void kui_input_scroll(int rows) {
@@ -631,104 +682,109 @@ void kui_input_bell(void) {
 /* Rendering                                                                */
 /* ------------------------------------------------------------------------ */
 
+static int KUI_SMALL = ISFALSE;
+
 static void kui_render_small(unsigned rows, unsigned cols) {
-	(void)cols;
-	(void)write(STDOUT_FILENO, ANSI_CURSOR_HIDE, strlen(ANSI_CURSOR_HIDE));
-	(void)write(STDOUT_FILENO, ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME, sizeof(ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME) - 1);
-	printf("TUI disabled (window too small).\n\n");
-	kui_goto(rows, 1);
-	(void)write(STDOUT_FILENO, ANSI_CURSOR_SHOW, strlen(ANSI_CURSOR_SHOW));
-	fflush(stdout);
+        (void)cols;
+        if (KUI_SMALL != ISTRUE) {
+                (void)write(STDOUT_FILENO, ANSI_CURSOR_HIDE, strlen(ANSI_CURSOR_HIDE));
+                (void)write(STDOUT_FILENO, ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME,
+                        sizeof(ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME) - 1);
+                (void)write(STDOUT_FILENO, "TUI disabled (window too small).\n",
+                        sizeof("TUI disabled (window too small).\n") - 1);
+                KUI_SMALL = ISTRUE;
+        }
+        kui_goto(rows, 1);
+        (void)write(STDOUT_FILENO, ANSI_CURSOR_SHOW, strlen(ANSI_CURSOR_SHOW));
 }
 
 void kui_render_page(void) {
-        kui_dispatch_events();
-	unsigned rows, cols, old_rows, old_cols, content_top, content_bottom, rendered_lines, prompt_row;
-	int8_t first_time, size_changed, sized_down;
-	KUI_SCROLLBACK *sb;
-	int banner_rows;
-	if (!g_prog_data) return;
-	kui_get_winsize(&rows, &cols);
-	old_rows = g_prog_data->term_rows;
-	old_cols = g_prog_data->term_cols;
-	first_time = (old_rows == 0 && old_cols == 0);
-	size_changed = (first_time || old_rows != rows || old_cols != cols);
-	sized_down = (!first_time && rows < old_rows);
-	if (size_changed) {
-		g_prog_data->term_rows = rows;
-		g_prog_data->term_cols = cols;
-		banner_reset();
+        unsigned rows, cols, old_rows, old_cols, content_top, content_bottom, prompt_row;
+        int8_t first_time, size_changed;
+        int banner_rows;
+        KUI_SCROLLBACK *sb;
 
-		if (sized_down) {
-			/* ESC c resets terminal modes, including mouse reporting. Restore
-			 * KUI's mouse modes immediately or wheel events may fall back to
-			 * cursor-key sequences in the alternate screen.
-			 */
-			(void)write(STDOUT_FILENO, "\033c", 2);
-			(void)write(STDOUT_FILENO, ANSI_ALT_SCREEN_ON, strlen(ANSI_ALT_SCREEN_ON));
-			kui_mouse_enable();
-			(void)write(STDOUT_FILENO, ANSI_CURSOR_HIDE, strlen(ANSI_CURSOR_HIDE));
-			(void)write(STDOUT_FILENO, ANSI_CURSOR_HOME, strlen(ANSI_CURSOR_HOME));
-			banner_reset();
-		}
-	}
-	if (rows < KUI_MIN_ROWS) {
-		kui_reset_scroll_region();
-		kui_render_small(rows, cols);
-		return;
-	}
-	(void)write(STDOUT_FILENO, ANSI_CURSOR_HIDE, strlen(ANSI_CURSOR_HIDE));
-	kui_reset_scroll_region();
-	(void)write(STDOUT_FILENO, "\x1b[H", 3);
-	banner_rows = banner(g_prog_data);
-	if (banner_rows < 0) banner_rows = 0;
-	content_top = (unsigned)banner_rows + 1;
-	content_bottom = (rows > (KUI_CHURNING_ACTIVE == ISTRUE ? 2U : 1U))
+        kui_dispatch_events();
+        if (!g_prog_data) return;
+        kui_get_winsize(&rows, &cols);
+        old_rows = g_prog_data->term_rows;
+        old_cols = g_prog_data->term_cols;
+        first_time = (old_rows == 0 && old_cols == 0);
+        size_changed = (first_time || old_rows != rows || old_cols != cols);
+        if (size_changed) {
+                g_prog_data->term_rows = rows;
+                g_prog_data->term_cols = cols;
+                banner_reset();
+                ui_screen_invalidate(&KUI_SCREEN);
+                KUI_INPUT_DIRTY = ISTRUE;
+                kui_reset_scroll_region();
+        }
+        if (rows < KUI_MIN_ROWS) {
+                ui_screen_invalidate(&KUI_SCREEN);
+                kui_render_small(rows, cols);
+                return;
+        }
+        if (KUI_SMALL == ISTRUE) {
+                KUI_SMALL = ISFALSE;
+                banner_reset();
+                ui_screen_invalidate(&KUI_SCREEN);
+                KUI_INPUT_DIRTY = ISTRUE;
+                (void)write(STDOUT_FILENO, ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME,
+                        sizeof(ANSI_CLEAR_SCREEN ANSI_CURSOR_HOME) - 1);
+        }
+
+        (void)write(STDOUT_FILENO, ANSI_CURSOR_HIDE, strlen(ANSI_CURSOR_HIDE));
+        banner_rows = banner(g_prog_data);
+        if (banner_rows < 0) banner_rows = 0;
+        content_top = (unsigned)banner_rows + 1;
+        // @@ The input owns the bottom row, independently of scrollback.
+        prompt_row = rows;
+        content_bottom = rows > (KUI_CHURNING_ACTIVE == ISTRUE ? 2U : 1U)
                 ? rows - (KUI_CHURNING_ACTIVE == ISTRUE ? 2U : 1U)
                 : rows;
-	if (content_top < content_bottom) {
-		kui_set_scroll_region(content_top, content_bottom);
-		kui_goto(content_top, 1);
-	} else {
-		kui_reset_scroll_region();
-		kui_goto((unsigned)banner_rows + 1, 1);
-	}
-	sb = &g_prog_data->kui_scrollback;
-	if (sb->line_count == 0 && sb->head == 0 && sb->view_offset == 0) kui_scrollback_init(sb);
-        
-        /* IMPORTANT: clamp view_offset to (line_count - window_h) or scrolling will desync */
-        /* ------------------------------------------------------------------ */
-        /* Clamp scrollback view_offset to visible window                     */
-        /* ------------------------------------------------------------------ */
+        if (content_top > content_bottom) content_top = content_bottom;
+
+        KUI_SCREEN_ACTIVE = ISFALSE;
+        KUI_SCREEN_FAILED = ISFALSE;
+        if (KUI_SCREEN_READY == ISTRUE
+                && ui_screen_begin(&KUI_SCREEN, rows, cols, content_top, rows - 1) == 0)
+                KUI_SCREEN_ACTIVE = ISTRUE;
+
+        sb = &g_prog_data->kui_scrollback;
+        if (sb->line_count == 0 && sb->head == 0 && sb->view_offset == 0)
+                kui_scrollback_init(sb);
+
+        // @@ Retain Phase 1 offset semantics until Phase 3's wrap index.
         {
-                unsigned int window_h;
-                unsigned int total;
-                unsigned int max_off;
-                window_h = content_bottom - content_top + 1;
-                total = sb->line_count;
-                if (total > window_h) max_off = total - window_h;
-                else max_off = 0;
-                if (sb->view_offset > max_off)
-                        sb->view_offset = max_off;
+                unsigned int window_h = content_bottom - content_top + 1;
+                unsigned int total = sb->line_count;
+                unsigned int max_off = total > window_h ? total - window_h : 0;
+                if (sb->view_offset > max_off) sb->view_offset = max_off;
         }
 
-	rendered_lines = kui_scrollback_render(sb, content_top, content_bottom, cols);
-	prompt_row = content_top + rendered_lines;
+        (void)kui_scrollback_render(sb, content_top, content_bottom, cols);
+        if (KUI_CHURNING_ACTIVE == ISTRUE)
+                kui_paint_row(rows - 1, KUI_CHURNING,
+                        strnlen(KUI_CHURNING, sizeof(KUI_CHURNING)), "", 0);
 
-        if (KUI_CHURNING_ACTIVE == ISTRUE) {
-                if (prompt_row == 0 || prompt_row >= rows) {
-                        prompt_row = rows > 1 ? rows - 1 : rows;
-                }
-                kui_goto(prompt_row, 1);
-                (void)write(STDOUT_FILENO, KUI_CHURNING, strnlen(KUI_CHURNING, sizeof(KUI_CHURNING)));
-                (void)write(STDOUT_FILENO, "\x1b[K", 3);
-                prompt_row++;
+        // @@ If a desired row could not be staged, paint this frame using the
+        // legacy row writer rather than committing a partially staged screen.
+        if (KUI_SCREEN_FAILED == ISTRUE) {
+                KUI_SCREEN_ACTIVE = ISFALSE;
+                ui_screen_invalidate(&KUI_SCREEN);
+                (void)kui_scrollback_render(sb, content_top, content_bottom, cols);
+                if (KUI_CHURNING_ACTIVE == ISTRUE)
+                        kui_paint_row(rows - 1, KUI_CHURNING,
+                                strnlen(KUI_CHURNING, sizeof(KUI_CHURNING)), "", 0);
+        } else if (KUI_SCREEN_ACTIVE == ISTRUE) {
+                if (ui_screen_commit(&KUI_SCREEN) != 0)
+                        ui_screen_invalidate(&KUI_SCREEN);
         }
 
-	if (prompt_row == 0 || prompt_row > rows) prompt_row = rows;
-	kui_goto(prompt_row, 1);
-	(void)write(STDOUT_FILENO, ANSI_CURSOR_SHOW, strlen(ANSI_CURSOR_SHOW));
-	fflush(stdout);
+        KUI_SCREEN_ACTIVE = ISFALSE;
+        kui_goto(prompt_row, 1);
+        (void)write(STDOUT_FILENO, ANSI_CURSOR_SHOW, strlen(ANSI_CURSOR_SHOW));
+        fflush(stdout);
         if (KUI_INPUT_ACTIVE == ISTRUE) {
                 kui_input_anchor();
                 kui_input_draw(KUI_INPUT_PROMPT, KUI_INPUT_TEXT, (int)KUI_INPUT_CURSOR);
@@ -743,6 +799,10 @@ void kui_enter(_carry_forward * _prog_data) {
 	if (_prog_data && !g_prog_data) g_prog_data = _prog_data;
         ui_events_reset();
         KUI_INPUT_ACTIVE = ISFALSE;
+        KUI_INPUT_DIRTY = ISTRUE;
+        KUI_SMALL = ISFALSE;
+        if (ui_screen_init(&KUI_SCREEN, STDOUT_FILENO) == 0)
+                KUI_SCREEN_READY = ISTRUE;
         memset(KUI_CHURNING, 0x00, sizeof(KUI_CHURNING));
         KUI_CHURNING_ACTIVE = ISFALSE;
 	kui_mouse_enable();
@@ -756,6 +816,9 @@ void kui_enter(_carry_forward * _prog_data) {
 void kui_exit(void) {
         kui_dispatch_events();
         KUI_INPUT_ACTIVE = ISFALSE;
+        KUI_SCREEN_ACTIVE = ISFALSE;
+        ui_screen_destroy(&KUI_SCREEN);
+        KUI_SCREEN_READY = ISFALSE;
 	if (g_prog_data) {
 		FILE * fp = (FILE *)g_prog_data->log;
 		if (fp) fflush(fp);
