@@ -25,6 +25,8 @@ typedef struct {
         unsigned int top;
         unsigned int bottom;
         unsigned int dirty_rows;
+        unsigned long long bytes_written;
+        unsigned long long write_calls;
         int fd;
 } UI_SCREEN;
 
