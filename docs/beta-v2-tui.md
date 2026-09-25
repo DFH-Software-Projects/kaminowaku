@@ -61,7 +61,7 @@ Keep the existing KUI implementation available as a baseline until the replaceme
 - KUI now owns the existing prompt drawing algorithm (including ANSI-aware prompt width and horizontal input scrolling), mouse scroll presentation and terminal bell. The page-render function drains queued command output before painting, and re-anchors the input line after page updates.
 - `kui_add_line()` and `kui_add_line_and_render()` retain their public signatures and formatting conventions. They post owned output events, which KUI drains in order into the existing log sink and scrollback. `kui_frame_start()`, `kui_flush_log()`, and shutdown drain preceding output to preserve logging order.
 - The existing `RENDER_NORMAL` and `RENDER_SCROLLING` behavior is deliberately unchanged in this phase. The user-facing `continuous|frame` command belongs to Phase 3.
-- This event ring is explicitly **not thread-safe** yet. Its sole consumer and producers run synchronously in Phase 1. Before Phase 4, introduce queue synchronization and a bounded backpressure policy for independent producers.
+- Historical Phase 1 limitation: the original ring was synchronous and not thread-safe. Phase 4 replaced its internals with a mutex/condition-variable queue and bounded producer backpressure.
 - Existing banner, progress, and external PTY pathways have not been migrated to exclusive terminal ownership. Complete compositor ownership and PTY integration in later phases without altering the command subsystem's notice syntax.
 
 ### Testing and cleanup
@@ -107,7 +107,7 @@ Keep targeted Phase 1 Linux queue and input tests during development. Consolidat
 - `tests/test-tui-wrap-index.sh` and the beta-v2 Linux workflow include the index regression. Full application build, interactive mode switching, continuous scrollback under heavy scan output and native FreeBSD testing still require confirmation.
 - Temporary tests and generated outputs are subject to the Phase 5 cleanup decision; keep permanent regressions where practical.
 
-## Phase 4 foundation (not yet active)
+## Phase 4 foundation (superseded by activation below)
 
 - `src/ui/ui_events.c` now uses a POSIX mutex and condition variables. It preserves ordered, copied events and provides nonblocking posting, blocking backpressure for workers, waiting consumption, queue-draining close and a reset suitable for startup after all threads have joined.
 - The dedicated renderer consumes queued UI events after TUI entry. Public render requests, input snapshots, output logging, state changes and log flushes are serialized through a producer/consumer acknowledgment barrier. A synchronous fallback remains if thread creation fails.
