@@ -43,6 +43,8 @@ void ui_events_reset(void);
 int ui_events_post(const ui_event_t *event);
 int ui_events_next(ui_event_t *event);
 int ui_events_post_wait(const ui_event_t *event);
+// @@ Enqueue a final barrier and reject all later producers atomically.
+int ui_events_post_and_close(const ui_event_t *event);
 int ui_events_wait_next(ui_event_t *event);
 void ui_events_close(void);
 unsigned int ui_events_pending(void);
