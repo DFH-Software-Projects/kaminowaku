@@ -690,9 +690,8 @@ int kaminowaku (_carry_forward * _prog_data) {
                         disable_raw_mode();
                         memset(_prog_data->cmd_last, 0x00, INPUT_BLOCK);
                         strcats(_prog_data->cmd_last, sizeof(_prog_data->cmd_last), _prog_data->cmd_input);
-                        if(_prog_data->render_mode == RENDER_NORMAL) {
-                                kui_clear_output();
-                        }
+                        // @@ Beta V2: frames are presentation boundaries, not log deletion.
+                        // KUI's selected mode determines which recorded lines are visible.
                 } else {
                         printf("%s", _prog_data->prompt);
                         fflush(stdout);
