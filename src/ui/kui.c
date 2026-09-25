@@ -15,6 +15,7 @@ Little note about this code:
 #define _XOPEN_SOURCE 700
 
 #include "kui.h"
+#include "ui_events.h"
 #include "banner.h"
 #include "helpers.h"
 
@@ -444,6 +445,184 @@ static void kui_sink_line(const char *line) {
         kui_scrollback_push(line);
 }
 
+
+// @@ Input display is KUI-owned. KIO only submits immutable editing snapshots.
+#ifndef TAB_STOP
+#define TAB_STOP 8
+#endif
+
+static int KUI_INPUT_ACTIVE = ISFALSE;
+static int KUI_PUMPING = ISFALSE;
+static char KUI_INPUT_TEXT[INPUT_BLOCK];
+static char KUI_INPUT_PROMPT[DOUBLE_BLOCK];
+static unsigned int KUI_INPUT_CURSOR = 0;
+
+static int visible_width_noansi(const char *s)
+{
+        int w = 0;
+        const unsigned char *p = (const unsigned char *)s;
+
+        while (*p) {
+                if (*p == '\x1b') {
+                        // Skip CSI: ESC '[' ... final byte 0x40–0x7E
+                        p++;
+                        if (*p == '[') {
+                                p++;
+                                while (*p && !(*p >= 0x40 && *p <= 0x7E)) p++;
+                                if (*p) p++;      // consume final
+                        }
+                        continue;
+                }
+                if (*p == '\t') {
+                        int to_next = TAB_STOP - (w % TAB_STOP);
+                        if (to_next < 0) to_next = 0;
+                        w += to_next;
+                        p++;
+                        continue;
+                }
+                if (*p == '\r' || *p == '\n') {
+                        // Keep it simple: treat as column reset on the same logical line.
+                        // (If you *do* embed newlines in prompts, consider tracking rows too.)
+                        w = 0;
+                        p++;
+                        continue;
+                }
+                w++;
+                p++;
+        }
+        return w;
+}
+
+static void kui_input_draw(const char *prompt, const char *INPUT_BUFFER, int cursor) {
+        struct winsize ws;
+        ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws);
+        int term_width = ws.ws_col > 0 ? ws.ws_col : 80;
+
+        int prompt_vis = visible_width_noansi(prompt);
+        int available  = term_width - prompt_vis;   // space left for input text
+
+        if (available < 1)
+                available = 1;                      // always leave *some* room
+
+        int len = (int)strlen(INPUT_BUFFER);
+        if (cursor < 0)
+                cursor = 0;
+        if (cursor > len)
+                cursor = len;
+
+        /* Decide which slice of INPUT_BUFFER to show so that the cursor stays visible. */
+        int start = 0;
+        if (cursor >= available) {
+                start = cursor - (available - 1);
+                if (start < 0)
+                        start = 0;
+        }
+
+        int view_len = len - start;
+        if (view_len > available)
+                view_len = available;
+
+        /* Restore anchor, clear the line, and draw prompt + visible slice. */
+        printf("\033[u");          /* restore saved cursor (anchor at line start) */
+        printf("\r\033[K");        /* CR + clear to end of line */
+        printf("%s", prompt);
+        if (view_len > 0)
+                fwrite(INPUT_BUFFER + start, 1, (size_t)view_len, stdout);
+
+        /* Move cursor to the correct spot within the visible slice. */
+        int display_cursor = cursor - start;        /* index within the visible window */
+        int target_col     = prompt_vis + display_cursor;
+
+        /* We are currently at column (prompt_vis + view_len); move left if needed. */
+        int current_col = prompt_vis + view_len;
+        int move_left   = current_col - target_col;
+
+        if (move_left > 0)
+                printf("\033[%dD", move_left);
+
+        fflush(stdout);
+}
+
+static void kui_input_anchor(void) {
+        (void)write(STDOUT_FILENO, "\x1b[s", 3);
+        fflush(stdout);
+}
+
+// @@ Synchronous event consumption; Phase 4 moves this pump to a dedicated thread.
+static void kui_dispatch_events(void) {
+        ui_event_t event;
+        if (KUI_PUMPING == ISTRUE) return;
+        KUI_PUMPING = ISTRUE;
+        while (ui_events_next(&event)) {
+                switch (event.type) {
+                        case UI_EVENT_OUTPUT:
+                                kui_sink_line(event.output);
+                                break;
+                        case UI_EVENT_SCROLL:
+                                if (g_prog_data) {
+                                        kui_scrollback_scroll_by(
+                                                &g_prog_data->kui_scrollback,
+                                                event.scroll_rows
+                                        );
+                                        kui_render_page();
+                                }
+                                break;
+                        case UI_EVENT_INPUT:
+                                snprintf(KUI_INPUT_TEXT, sizeof(KUI_INPUT_TEXT), "%s", event.input);
+                                snprintf(KUI_INPUT_PROMPT, sizeof(KUI_INPUT_PROMPT), "%s", event.prompt);
+                                KUI_INPUT_CURSOR = event.cursor;
+                                if (KUI_INPUT_ACTIVE == ISTRUE)
+                                        kui_input_draw(KUI_INPUT_PROMPT, KUI_INPUT_TEXT, (int)KUI_INPUT_CURSOR);
+                                break;
+                        default:
+                                break;
+                }
+        }
+        KUI_PUMPING = ISFALSE;
+}
+
+// @@ Drain when full. The synchronous Phase 1 transport never drops events.
+static void kui_post_event(const ui_event_t *event) {
+        if (ui_events_post(event) == 0) return;
+        kui_dispatch_events();
+        if (ui_events_post(event) != 0) {
+                // This should be unreachable with one synchronous producer.
+                FILE *fp = g_prog_data ? (FILE *)g_prog_data->log : NULL;
+                if (fp) fprintf(fp, "[x] KUI event queue overflow.\n");
+        }
+}
+
+void kui_input_begin(void) {
+        KUI_INPUT_ACTIVE = ISTRUE;
+        kui_input_anchor();
+}
+
+void kui_input_update(const char *prompt, const char *input, unsigned int cursor) {
+        ui_event_t event = {0};
+        event.type = UI_EVENT_INPUT;
+        if (prompt) snprintf(event.prompt, sizeof(event.prompt), "%s", prompt);
+        if (input) snprintf(event.input, sizeof(event.input), "%s", input);
+        event.cursor = cursor;
+        kui_post_event(&event);
+        kui_dispatch_events();
+}
+
+void kui_input_end(void) {
+        KUI_INPUT_ACTIVE = ISFALSE;
+}
+
+void kui_input_scroll(int rows) {
+        ui_event_t event = {0};
+        event.type = UI_EVENT_SCROLL;
+        event.scroll_rows = rows;
+        kui_post_event(&event);
+        kui_dispatch_events();
+}
+
+void kui_input_bell(void) {
+        (void)write(STDOUT_FILENO, "\a", 1);
+}
+
 /* ------------------------------------------------------------------------ */
 /* Rendering                                                                */
 /* ------------------------------------------------------------------------ */
@@ -459,6 +638,7 @@ static void kui_render_small(unsigned rows, unsigned cols) {
 }
 
 void kui_render_page(void) {
+        kui_dispatch_events();
 	unsigned rows, cols, old_rows, old_cols, content_top, content_bottom, rendered_lines, prompt_row;
 	int8_t first_time, size_changed, sized_down;
 	KUI_SCROLLBACK *sb;
@@ -545,6 +725,10 @@ void kui_render_page(void) {
 	kui_goto(prompt_row, 1);
 	(void)write(STDOUT_FILENO, ANSI_CURSOR_SHOW, strlen(ANSI_CURSOR_SHOW));
 	fflush(stdout);
+        if (KUI_INPUT_ACTIVE == ISTRUE) {
+                kui_input_anchor();
+                kui_input_draw(KUI_INPUT_PROMPT, KUI_INPUT_TEXT, (int)KUI_INPUT_CURSOR);
+        }
 }
 
 /* ------------------------------------------------------------------------ */
@@ -553,6 +737,8 @@ void kui_render_page(void) {
 
 void kui_enter(_carry_forward * _prog_data) {
 	if (_prog_data && !g_prog_data) g_prog_data = _prog_data;
+        ui_events_reset();
+        KUI_INPUT_ACTIVE = ISFALSE;
         memset(KUI_CHURNING, 0x00, sizeof(KUI_CHURNING));
         KUI_CHURNING_ACTIVE = ISFALSE;
 	kui_mouse_enable();
@@ -564,6 +750,8 @@ void kui_enter(_carry_forward * _prog_data) {
 }
 
 void kui_exit(void) {
+        kui_dispatch_events();
+        KUI_INPUT_ACTIVE = ISFALSE;
 	if (g_prog_data) {
 		FILE * fp = (FILE *)g_prog_data->log;
 		if (fp) fflush(fp);
@@ -580,6 +768,7 @@ void kui_exit(void) {
 }
 
 void kui_scrollback_reset(void) {
+        kui_dispatch_events();
 	if (!g_prog_data) return;
 	kui_scrollback_init(&g_prog_data->kui_scrollback);
 }
@@ -617,10 +806,11 @@ void kui_clear_output(void) {
 }
 
 static void kui_add_vfmt(int do_render, const char *fmt, va_list ap) {
-        char buf[KUI_MAX_SCROLL_COLS];
+        ui_event_t event = {0};
         if (!g_prog_data || !fmt) return;
-        (void)vsnprintf(buf, sizeof(buf), fmt, ap);
-        kui_sink_line(buf);
+        event.type = UI_EVENT_OUTPUT;
+        (void)vsnprintf(event.output, sizeof(event.output), fmt, ap);
+        kui_post_event(&event);
         if (do_render)
                 kui_render_page();
 }
@@ -657,6 +847,7 @@ void kui_clear_churning(void) {
 }
 
 void kui_flush_log(void) {
+        kui_dispatch_events();
 	if (!g_prog_data) return;
         FILE *fp;
 	fp = (FILE *)g_prog_data->log;
@@ -664,6 +855,7 @@ void kui_flush_log(void) {
 }
 
 void kui_frame_start(void) {
+        kui_dispatch_events();
 	if (!g_prog_data) return;
 	g_prog_data->log_frame_start = ISTRUE;
 }
