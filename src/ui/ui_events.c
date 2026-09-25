@@ -8,6 +8,7 @@
 static ui_event_t UI_EVENTS[UI_EVENT_CAPACITY];
 static unsigned int UI_EVENT_HEAD = 0;
 static unsigned int UI_EVENT_COUNT = 0;
+static unsigned int UI_EVENT_PEAK = 0;
 static int UI_EVENT_CLOSED = 0;
 static pthread_mutex_t UI_EVENT_LOCK = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t UI_EVENT_AVAILABLE = PTHREAD_COND_INITIALIZER;
@@ -17,6 +18,7 @@ static void ui_events_push_locked(const ui_event_t *event) {
         unsigned int tail = (UI_EVENT_HEAD + UI_EVENT_COUNT) % UI_EVENT_CAPACITY;
         UI_EVENTS[tail] = *event;
         UI_EVENT_COUNT++;
+        if (UI_EVENT_COUNT > UI_EVENT_PEAK) UI_EVENT_PEAK = UI_EVENT_COUNT;
         pthread_cond_signal(&UI_EVENT_AVAILABLE);
 }
 
@@ -32,6 +34,7 @@ void ui_events_reset(void) {
         pthread_mutex_lock(&UI_EVENT_LOCK);
         UI_EVENT_HEAD = 0;
         UI_EVENT_COUNT = 0;
+        UI_EVENT_PEAK = 0;
         UI_EVENT_CLOSED = 0;
         pthread_cond_broadcast(&UI_EVENT_AVAILABLE);
         pthread_cond_broadcast(&UI_EVENT_SPACE);
@@ -125,4 +128,13 @@ unsigned int ui_events_pending(void) {
         pending = UI_EVENT_COUNT;
         pthread_mutex_unlock(&UI_EVENT_LOCK);
         return pending;
+}
+
+// @@ Diagnostic: maximum pending events since the last UI startup/reset.
+unsigned int ui_events_high_watermark(void) {
+        unsigned int peak;
+        pthread_mutex_lock(&UI_EVENT_LOCK);
+        peak = UI_EVENT_PEAK;
+        pthread_mutex_unlock(&UI_EVENT_LOCK);
+        return peak;
 }
