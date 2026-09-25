@@ -17,6 +17,7 @@ Little note about this code:
 #include "kui.h"
 #include "ui_events.h"
 #include "ui_screen.h"
+#include "ui_wrap_index.h"
 #include "banner.h"
 #include "helpers.h"
 
@@ -54,6 +55,8 @@ static UI_SCREEN KUI_SCREEN;
 static int KUI_SCREEN_READY = ISFALSE;
 static int KUI_SCREEN_ACTIVE = ISFALSE;
 static int KUI_SCREEN_FAILED = ISFALSE;
+static UI_WRAP_INDEX KUI_WRAP_INDEX;
+static unsigned int KUI_VIEW_MAX_OFF = 0;
 
 /* ------------------------------------------------------------------------ */
 /* Low-level terminal helpers                                               */
@@ -235,17 +238,9 @@ static unsigned int kui_line_wrap_rows(const char *s, unsigned int cols) {
 
 /* Total physical rows in scrollback at width cols. */
 static unsigned int kui_scrollback_total_rows(const KUI_SCROLLBACK *sb, unsigned int cols) {
-        unsigned int total;
-        unsigned int i;
-        unsigned int sum;
-        if (!sb) return 0;
-        total = sb->line_count;
-        sum = 0;
-        for (i = 0; i < total; i++) {
-                unsigned int physical = (sb->head + i) % KUI_MAX_SCROLL_LINES;
-                sum += kui_line_wrap_rows(sb->lines[physical], cols);
-        }
-        return sum;
+        if (!sb || cols == 0) return 0;
+        ui_wrap_index_sync(&KUI_WRAP_INDEX, sb, cols, kui_line_wrap_rows);
+        return KUI_WRAP_INDEX.total_rows;
 }
 
 // @@ Preserve active ANSI colors when a physical row starts mid-line.
@@ -318,6 +313,7 @@ static unsigned int kui_scrollback_render(
         if (window_h == 0) return 0;
         total_lines = sb->line_count;
         if (total_lines == 0) {
+                KUI_VIEW_MAX_OFF = 0;
                 // @@ Desired rows are already blank in the virtual screen.
                 if (KUI_SCREEN_ACTIVE != ISTRUE)
                         for (i = 0; i < window_h; i++)
@@ -328,6 +324,7 @@ static unsigned int kui_scrollback_render(
         total_rows = kui_scrollback_total_rows(sb, cols);
         if (total_rows > window_h) max_off_rows = total_rows - window_h;
         else max_off_rows = 0;
+        KUI_VIEW_MAX_OFF = max_off_rows;
         offset_rows = sb->view_offset;
         if (offset_rows > max_off_rows) offset_rows = max_off_rows;
         /* Interpret view_offset as physical rows from bottom */
@@ -336,35 +333,22 @@ static unsigned int kui_scrollback_render(
         else bottom_row_idx = 0;
         if (bottom_row_idx + 1 > window_h) first_row_idx = bottom_row_idx + 1 - window_h;
         else first_row_idx = 0;
-        /*
-         * Map first_row_idx to (start_logical, start_pos) by scanning logical lines from the top
-         * and subtracting their wrapped row counts until we land inside the target line.
-         */
+        // @@ Binary-search the cached prefix instead of re-wrapping old lines.
         {
-                unsigned int acc = 0;
-                for (i = 0; i < total_lines; i++) {
-                        unsigned int physical = (sb->head + i) % KUI_MAX_SCROLL_LINES;
-                        const char *s = sb->lines[physical];
-                        unsigned int rows = kui_line_wrap_rows(s, cols);
-                        if (acc + rows > first_row_idx) {
-                                /* We start inside this logical line */
-                                unsigned int inside = first_row_idx - acc;
-                                size_t n = strnlen(s ? s : "", KUI_MAX_SCROLL_COLS);
-                                size_t pos = 0;
-                                unsigned int seg = 0;
-                                /* advance 'inside' segments to find byte start */
-                                while (pos < n && seg < inside) {
-                                        size_t end = kui_wrap_find_end(s, n, pos, cols);
-                                        if (end <= pos) end = pos + 1;
-                                        pos = end;
-                                        while (pos < n && kui_is_space_byte((unsigned char)s[pos])) pos++;
-                                        seg++;
-                                }
-                                start_logical = i;
-                                start_pos = pos;
-                                break;
+                unsigned int inside = 0;
+                if (ui_wrap_index_locate(&KUI_WRAP_INDEX, first_row_idx,
+                        &start_logical, &inside) == 0) {
+                        unsigned int physical = (sb->head + start_logical) % KUI_MAX_SCROLL_LINES;
+                        const char *line = sb->lines[physical];
+                        size_t n = strnlen(line, KUI_MAX_SCROLL_COLS);
+                        size_t pos = 0;
+                        for (unsigned int segment = 0; pos < n && segment < inside; segment++) {
+                                size_t end = kui_wrap_find_end(line, n, pos, cols);
+                                if (end <= pos) end = pos + 1;
+                                pos = end;
+                                while (pos < n && kui_is_space_byte((unsigned char)line[pos])) pos++;
                         }
-                        acc += rows;
+                        start_pos = pos;
                 }
         }
         /* Render forward from (start_logical, start_pos) until window_h rows filled */
@@ -754,14 +738,6 @@ void kui_render_page(void) {
         if (sb->line_count == 0 && sb->head == 0 && sb->view_offset == 0)
                 kui_scrollback_init(sb);
 
-        // @@ Retain Phase 1 offset semantics until Phase 3's wrap index.
-        {
-                unsigned int window_h = content_bottom - content_top + 1;
-                unsigned int total = sb->line_count;
-                unsigned int max_off = total > window_h ? total - window_h : 0;
-                if (sb->view_offset > max_off) sb->view_offset = max_off;
-        }
-
         (void)kui_scrollback_render(sb, content_top, content_bottom, cols);
         if (KUI_CHURNING_ACTIVE == ISTRUE)
                 kui_paint_row(rows - 1, KUI_CHURNING,
@@ -798,6 +774,8 @@ void kui_render_page(void) {
 void kui_enter(_carry_forward * _prog_data) {
 	if (_prog_data && !g_prog_data) g_prog_data = _prog_data;
         ui_events_reset();
+        ui_wrap_index_reset(&KUI_WRAP_INDEX);
+        KUI_VIEW_MAX_OFF = 0;
         KUI_INPUT_ACTIVE = ISFALSE;
         KUI_INPUT_DIRTY = ISTRUE;
         KUI_SMALL = ISFALSE;
@@ -838,11 +816,14 @@ void kui_scrollback_reset(void) {
         kui_dispatch_events();
 	if (!g_prog_data) return;
 	kui_scrollback_init(&g_prog_data->kui_scrollback);
+        ui_wrap_index_reset(&KUI_WRAP_INDEX);
+        KUI_VIEW_MAX_OFF = 0;
+        ui_screen_invalidate(&KUI_SCREEN);
 }
 
 static unsigned int kui_scrollback_max_off(const KUI_SCROLLBACK *sb) {
-        if (!sb || sb->line_count == 0) return 0;
-        return sb->line_count - 1;
+        if (!sb) return 0;
+        return KUI_VIEW_MAX_OFF;
 }
 
 static void kui_scrollback_set_view_offset(KUI_SCROLLBACK *sb, unsigned int new_off) {
