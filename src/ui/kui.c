@@ -987,10 +987,23 @@ static KUI_VIEW_ANCHOR kui_anchor_before_resize(const KUI_SCROLLBACK *sb,
                 KUI_LAYOUT_BOTTOM < KUI_LAYOUT_TOP || !KUI_LAYOUT_TOP)
                 return anchor;
         total = kui_scrollback_total_rows(sb, old_cols);
+        unsigned int base = 0;
+        if (KUI_DISPLAY_MODE == KUI_DISPLAY_FRAME) {
+                uint64_t oldest = KUI_OUTPUT_SEQUENCE >= sb->line_count
+                        ? KUI_OUTPUT_SEQUENCE - sb->line_count : 0;
+                if (KUI_FRAME_START_SEQUENCE > oldest) {
+                        uint64_t gap = KUI_FRAME_START_SEQUENCE - oldest;
+                        unsigned int start = gap < sb->line_count
+                                ? (unsigned int)gap : sb->line_count;
+                        base = KUI_WRAP_INDEX.prefix[start];
+                }
+        }
+        total -= base;
         height = KUI_LAYOUT_BOTTOM - KUI_LAYOUT_TOP + 1;
         off = sb->view_offset < total ? sb->view_offset : total;
         if (total > height + off) first = total - height - off;
-        if (ui_wrap_index_locate(&KUI_WRAP_INDEX, first, &anchor.logical, &inside))
+        if (ui_wrap_index_locate(&KUI_WRAP_INDEX, base + first,
+                        &anchor.logical, &inside))
                 return anchor;
         const char *line = sb->lines[(sb->head + anchor.logical) % KUI_MAX_SCROLL_LINES];
         size_t n = strnlen(line, KUI_MAX_SCROLL_COLS), pos = 0;
