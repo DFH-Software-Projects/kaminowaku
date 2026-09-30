@@ -21,8 +21,8 @@ void help(_carry_forward * _prog_data) {
                 );
                 kui_add_line(
                         ANSI_COLOR_MAGENTA "[\t" ANSI_COLOR_RESET
-                        "ui\t\t\t<-- Change continuous/frame display mode"
-                        ANSI_COLOR_MAGENTA "\t]" ANSI_COLOR_RESET
+                        "ui\t\t\t<-- Change display mode"
+                        ANSI_COLOR_MAGENTA "\t\t]" ANSI_COLOR_RESET
                 );
                 if (_prog_data->help_caller_state_manager == C_TOOL_CONTEXTUAL) {
                         kui_add_line(
