@@ -70,6 +70,7 @@
 #define SCAN_RESULT_ERROR       (1U << 3)
 #define SCAN_RESULT_ROUTE       (1U << 4)
 #define SCAN_RESULT_NEIGHBOR    (1U << 5)
+#define SCAN_RESULT_L3_FALLBACK (1U << 6)
 #define TARGET_SCAN_DATA_VERSION 1U
 
 // Maximum Maps

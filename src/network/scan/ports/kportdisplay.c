@@ -1,6 +1,7 @@
 // Copyright 2026 Jamison A. Drapeau
 #include "kportdisplay.h"
 #include "kportfilter.h"
+#include "kportdisplay_policy.h"
 #include "kportscan.h"
 #include "kportselect.h"
 #include "kbanner.h"
@@ -22,6 +23,15 @@ typedef struct KPORTDISPLAY_SLOT {
         uint8_t PRESENT;
         uint8_t STATE;
         uint8_t EVIDENCE;
+        /*
+         * Retain the most recent confirmed TCP SYN+ACK independently
+         * of the newest scan state. A later timeout/RST does not erase
+         * historical positive evidence, but must be visibly identified.
+         */
+        uint64_t TCP_SYNACK_NS;
+        uint32_t TCP_SYNACK_RX_BYTES;
+        uint8_t TCP_SYNACK_SEEN;
+        uint8_t HISTORICAL_TCP;
 } KPORTDISPLAY_SLOT;
 
 static size_t kportdisplay_index(
@@ -82,6 +92,13 @@ static KPORTSCAN_EVIDENCE kportdisplay_parse_evidence(const char * EVIDENCE) {
 
 static const char * kportdisplay_state_string(uint8_t STATE) {
         return kportscan_state_string((KPORTSCAN_STATE)STATE);
+}
+
+static const char * kportdisplay_display_state(const KPORTDISPLAY_SLOT * SLOT) {
+        if (SLOT && SLOT->HISTORICAL_TCP == ISTRUE) {
+                return "OPEN (prior)";
+        }
+        return SLOT ? kportdisplay_state_string(SLOT->STATE) : "UNKNOWN";
 }
 
 static const char * kportdisplay_state_color(uint8_t STATE) {
@@ -145,7 +162,7 @@ static void kportdisplay_print_row(
                 PORT,
                 kportdisplay_family_value(FAMILY_INDEX),
                 kportdisplay_state_color(SLOT->STATE),
-                kportdisplay_state_string(SLOT->STATE),
+                kportdisplay_display_state(SLOT),
                 ANSI_COLOR_RESET,
                 kportdisplay_evidence_string(SLOT->EVIDENCE)
         );
@@ -186,7 +203,7 @@ static void kportdisplay_print_detail(
         kui_add_line(
                 " STATE:      %s%s%s",
                 kportdisplay_state_color(SLOT->STATE),
-                kportdisplay_state_string(SLOT->STATE),
+                kportdisplay_display_state(SLOT),
                 ANSI_COLOR_RESET
         );
         kui_add_line(
@@ -205,6 +222,12 @@ static void kportdisplay_print_detail(
                 " RX BYTES:   %u",
                 SLOT->RX_BYTES
         );
+        if (SLOT->HISTORICAL_TCP == ISTRUE) {
+                kui_add_line(
+                        NOTICE_INFO
+                        "Prior SYN+ACK observed; the latest scan did not confirm an open port."
+                );
+        }
 
 }
 
@@ -257,8 +280,17 @@ static void kportdisplay_print_sorted_table(
                                                 continue;
                                         }
 
-                                        if (*PRINTED >= KPORTDISPLAY_TABLE_LIMIT) {
-                                                return;
+                                        /*
+                                         * Cap noisy diagnostic/error rows, never a
+                                         * TCP port with confirmed SYN+ACK evidence.
+                                         */
+                                        if (
+                                                *PRINTED >= KPORTDISPLAY_TABLE_LIMIT
+                                                && !kportdisplay_is_tcp_synack(
+                                                        PROTOCOL, SLOT->STATE, SLOT->EVIDENCE
+                                                )
+                                        ) {
+                                                continue;
                                         }
 
                                         kportdisplay_print_row(
@@ -406,6 +438,22 @@ void kportdisplay_target(
                 ];
 
                 if (
+                        kportdisplay_is_tcp_synack(
+                                (unsigned int)PROTOCOL_INDEX,
+                                (uint8_t)PARSED_STATE,
+                                (uint8_t)PARSED_EVIDENCE
+                        )
+                        && (
+                                SLOT->TCP_SYNACK_SEEN != ISTRUE
+                                || SLOT->TCP_SYNACK_NS <= (uint64_t)TIMESTAMP_NS
+                        )
+                ) {
+                        SLOT->TCP_SYNACK_SEEN = ISTRUE;
+                        SLOT->TCP_SYNACK_NS = (uint64_t)TIMESTAMP_NS;
+                        SLOT->TCP_SYNACK_RX_BYTES = RX_BYTES;
+                }
+
+                if (
                         SLOT->PRESENT == ISTRUE
                         && SLOT->TIMESTAMP_NS > (uint64_t)TIMESTAMP_NS
                 ) {
@@ -420,6 +468,46 @@ void kportdisplay_target(
         }
 
         fclose(FILE_HANDLE);
+
+        /*
+         * Filter only at render time: no .ports evidence or target data is
+         * deleted. When a newer CLOSED/FILTERED result follows a TCP
+         * SYN+ACK, show the last confirmed connection as historical.
+         */
+        for (unsigned int PROTOCOL = 0; PROTOCOL < KPORTDISPLAY_PROTOCOLS; PROTOCOL++) {
+                for (unsigned int PORT = 1; PORT < MAX_PORTS; PORT++) {
+                        for (unsigned int FAMILY = 0; FAMILY < KPORTDISPLAY_FAMILIES; FAMILY++) {
+                                KPORTDISPLAY_SLOT * SLOT = &SLOTS[
+                                        kportdisplay_index(PROTOCOL, FAMILY, PORT)
+                                ];
+
+                                if (SLOT->PRESENT != ISTRUE) {
+                                        continue;
+                                }
+                                if (
+                                        !kportdisplay_visible(
+                                                PROTOCOL, SLOT->STATE,
+                                                SLOT->TCP_SYNACK_SEEN
+                                        )
+                                ) {
+                                        SLOT->PRESENT = ISFALSE;
+                                        continue;
+                                }
+                                if (
+                                        kportdisplay_use_historical_tcp(
+                                                PROTOCOL, SLOT->STATE,
+                                                SLOT->TCP_SYNACK_SEEN
+                                        )
+                                ) {
+                                        SLOT->HISTORICAL_TCP = ISTRUE;
+                                        SLOT->TIMESTAMP_NS = SLOT->TCP_SYNACK_NS;
+                                        SLOT->RX_BYTES = SLOT->TCP_SYNACK_RX_BYTES;
+                                        SLOT->STATE = KPORTSCAN_STATE_OPEN;
+                                        SLOT->EVIDENCE = KPORTSCAN_EVIDENCE_TCP_SYN_ACK;
+                                }
+                        }
+                }
+        }
 
         if (MODE == KPORTDISPLAY_MODE_OBSERVED) {
                 for (unsigned int PROTOCOL = 0; PROTOCOL < KPORTDISPLAY_PROTOCOLS; PROTOCOL++) {

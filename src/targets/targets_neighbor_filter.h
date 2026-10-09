@@ -6,16 +6,25 @@
 #include <stdint.h>
 
 // -n is deliberately fail-closed: a timeout, a generic error, or a target
-// that has never been scanned does not prove a neighbor-resolution failure.
-// SCAN_RESULT_NEIGHBOR denotes NOSIX_ERR_NEIGHBOR (a TX error), not an ARP/NDP reply.
-static inline int8_t targets_prune_no_neighbor(
+// that has never been scanned is not conclusive transport-failure evidence.
+// Accept only the exact NOSIX neighbor-resolution or attempted L3 TX failure.
+// SCAN_RESULT_NEIGHBOR means NOSIX_ERR_NEIGHBOR, not an ARP/NDP response.
+// SCAN_RESULT_L3_FALLBACK means NOSIX_ERR_L3_FALLBACK_FAILED, not a
+// missing reply after a successful L3 transmission.
+static inline int8_t targets_prune_transport_failure_state(uint8_t RESULT) {
+        const uint8_t REQUIRED = SCAN_RESULT_RAN | SCAN_RESULT_ERROR;
+
+        return (
+                RESULT == (uint8_t)(REQUIRED | SCAN_RESULT_NEIGHBOR)
+                || RESULT == (uint8_t)(REQUIRED | SCAN_RESULT_L3_FALLBACK)
+        ) ? ISTRUE : ISFALSE;
+}
+
+static inline int8_t targets_prune_transport_failure(
         const TARGET * PETAL,
         uint8_t ICMPV6_STATE,
         int8_t OBSERVED
 ) {
-        const uint8_t NEIGHBOR_FAILURE = (
-                SCAN_RESULT_RAN | SCAN_RESULT_ERROR | SCAN_RESULT_NEIGHBOR
-        );
         int8_t HAS_ADDRESS = ISFALSE;
 
         if (
@@ -28,14 +37,14 @@ static inline int8_t targets_prune_no_neighbor(
 
         if (PETAL->IPV4[0] != 0x00) {
                 HAS_ADDRESS = ISTRUE;
-                if (PETAL->SCAN.ICMPV4 != NEIGHBOR_FAILURE) {
+                if (targets_prune_transport_failure_state(PETAL->SCAN.ICMPV4) != ISTRUE) {
                         return ISFALSE;
                 }
         }
 
         if (PETAL->IPV6[0] != 0x00) {
                 HAS_ADDRESS = ISTRUE;
-                if (ICMPV6_STATE != NEIGHBOR_FAILURE) {
+                if (targets_prune_transport_failure_state(ICMPV6_STATE) != ISTRUE) {
                         return ISFALSE;
                 }
         }

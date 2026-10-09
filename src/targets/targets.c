@@ -445,7 +445,7 @@ void targets_print_usage(void) {
         kui_add_line("\ttargets del -n");
         kui_add_line(
                 "\t" NOTICE_INFO
-                ANSI_COLOR_YELLOW "Delete only targets with explicit neighbor-resolution failures." ANSI_COLOR_RESET
+                ANSI_COLOR_YELLOW "Delete only targets with recorded L2 neighbor or L3 transmit failures." ANSI_COLOR_RESET
         );
         kui_add_line("");
         // CIDR add usage:
@@ -497,7 +497,7 @@ void targets_print_usage(void) {
         kui_add_line("\t-6\t: IPv6 Address");
         kui_add_line("\t-M\t: MAC Address");
         kui_add_line("\t-N\t: Note (e.g. 'DC' or 'Webserver' or 'Bobs Computer')");
-        kui_add_line("\t-n\t: Delete targets with recorded neighbor failure on every configured IP family (del only)");
+        kui_add_line("\t-n\t: Delete targets with recorded L2 neighbor / L3 TX failures on every configured IP family (del only)");
         kui_add_line("\t-d\t: Display all detailed built-in scan data followed by all stored Book output");
         kui_add_line("\t-o\t: Display only targets and scan results backed by received packets");
         kui_add_line("\t-p\t: Display only targets with the specified TCP port OPEN");
@@ -791,8 +791,8 @@ static int8_t targets_has_observation(
         return kportdisplay_has_observed(_prog_data, TID);
 }
 
-// @@ Delete only targets with explicit, recorded neighbor-resolution failure.
-// A missing scan, ICMP timeout, or generic TX error is not evidence for -n.
+// @@ Delete only targets with explicit recorded L2 neighbor or L3 TX failure.
+// Missing scans, timeouts and generic TX errors never qualify for -n.
 void targets_del_no_neighbor(_carry_forward * _prog_data) {
         FLOWER * CURRENT;
         uint64_t DELETED = 0;
@@ -840,7 +840,7 @@ void targets_del_no_neighbor(_carry_forward * _prog_data) {
                         continue;
                 }
 
-                PRUNE = targets_prune_no_neighbor(
+                PRUNE = targets_prune_transport_failure(
                         PETAL,
                         kscan_icmpv6_state(PETAL),
                         targets_has_observation(_prog_data, TID, PETAL)
@@ -869,14 +869,14 @@ void targets_del_no_neighbor(_carry_forward * _prog_data) {
         kui_add_line(
                 NOTICE_SUCCESS
                 "Deleted " ANSI_COLOR_CYAN "%llu" ANSI_COLOR_RESET
-                " target%s with recorded neighbor-resolution failure.",
+                " target%s with recorded L2 neighbor or L3 transmit failure.",
                 (unsigned long long)DELETED,
                 (DELETED == 1) ? "" : "s"
         );
         kui_add_line(
                 NOTICE_INFO
                 "Preserved " ANSI_COLOR_CYAN "%llu" ANSI_COLOR_RESET
-                " target%s without conclusive neighbor failure or with response evidence.",
+                " target%s without conclusive L2/L3 transmit failure or with response evidence.",
                 (unsigned long long)PRESERVED,
                 (PRESERVED == 1) ? "" : "s"
         );

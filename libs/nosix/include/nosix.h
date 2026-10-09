@@ -22,7 +22,7 @@ extern "C" {
  *      ABI 1 -> libnosix.so.1
  */
 #define NOSIX_ABI_VERSION_MAJOR 1U
-#define NOSIX_ABI_VERSION_MINOR 4U
+#define NOSIX_ABI_VERSION_MINOR 5U
 
 
 /*
@@ -65,6 +65,11 @@ extern "C" {
  * NOSIX_ERR_NEIGHBOR indicates that the route and next hop
  * were determined, but required link-layer neighbor
  * resolution did not produce a usable address.
+ *
+ * NOSIX_ERR_L3_FALLBACK_FAILED is reserved for a failed managed
+ * non-Ethernet IPv4 transmission attempt, not for a timeout
+ * waiting for a response after successful transmission.
+ * This pathway is not enabled until BetaV3 Phase 2/3.
  */
 typedef enum nosix_status {
         NOSIX_OK                  =  0,
@@ -82,7 +87,8 @@ typedef enum nosix_status {
         NOSIX_ERR_UNSUPPORTED     = -7,
         NOSIX_ERR_ROUTE           = -8,
         NOSIX_ERR_NEIGHBOR        = -9,
-        NOSIX_ERR_CONNECTION      = -10
+        NOSIX_ERR_CONNECTION      = -10,
+        NOSIX_ERR_L3_FALLBACK_FAILED = -11
 } nosix_status_t;
 
 
@@ -97,11 +103,15 @@ typedef enum nosix_status {
  * to the local host and NOSIX transmitted a complete IPv4
  * packet through the local raw-IP path. Neighbor resolution
  * is not performed for this surface.
+ *
+ * NOSIX_TX_SURFACE_IPV4_L3 is reserved for successfully
+ * transmitted non-Ethernet IPv4 packets (e.g. through TUN).
  */
 typedef enum nosix_tx_surface {
         NOSIX_TX_SURFACE_NONE       = 0,
         NOSIX_TX_SURFACE_ETHERNET   = 1,
-        NOSIX_TX_SURFACE_IPV4_LOCAL = 2
+        NOSIX_TX_SURFACE_IPV4_LOCAL = 2,
+        NOSIX_TX_SURFACE_IPV4_L3    = 3
 } nosix_tx_surface_t;
 
 
@@ -473,9 +483,9 @@ typedef struct nosix_injection {
  * For NOSIX_TX_SURFACE_ETHERNET, nosix_write_frame()
  * returns the complete Ethernet frame.
  *
- * For NOSIX_TX_SURFACE_IPV4_LOCAL, nosix_write_frame()
- * returns the complete IPv4 packet because local delivery
- * has no Ethernet header.
+ * For NOSIX_TX_SURFACE_IPV4_LOCAL and NOSIX_TX_SURFACE_IPV4_L3,
+ * nosix_write_frame() returns the complete IPv4 packet, without
+ * an Ethernet header.
  */
 typedef struct nosix_frame {
         uint8_t *data;
@@ -490,6 +500,7 @@ typedef struct nosix_frame {
  */
 #define NOSIX_CAPTURE_TRUNCATED  (1U << 0)
 #define NOSIX_CAPTURE_IPV4_LOCAL (1U << 1)
+#define NOSIX_CAPTURE_IPV4_L3    (1U << 2)
 
 
 /*
@@ -500,7 +511,10 @@ typedef struct nosix_frame {
  * length.
  *
  * NOSIX_CAPTURE_IPV4_LOCAL means frame.data begins with an
- * IPv4 header rather than an Ethernet header.
+ * IPv4 header rather than an Ethernet header (host-local RX).
+ * NOSIX_CAPTURE_IPV4_L3 also denotes an IPv4 packet without
+ * Ethernet framing, received over a non-Ethernet interface.
+ * They are distinct flags so callers retain provenance.
  *
  * timestamp_ns is nanoseconds since the Unix epoch when
  * supplied by the platform backend; zero means unavailable.

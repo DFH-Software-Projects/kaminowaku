@@ -32,6 +32,7 @@ static const char * ksping6_nosix_status_string(nosix_status_t STATUS) {
                 case NOSIX_ERR_UNSUPPORTED: return "NOSIX_ERR_UNSUPPORTED";
                 case NOSIX_ERR_ROUTE: return "NOSIX_ERR_ROUTE";
                 case NOSIX_ERR_NEIGHBOR: return "NOSIX_ERR_NEIGHBOR";
+                case NOSIX_ERR_L3_FALLBACK_FAILED: return "NOSIX_ERR_L3_FALLBACK_FAILED";
         }
         return "NOSIX_UNKNOWN";
 }

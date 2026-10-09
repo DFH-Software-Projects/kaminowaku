@@ -150,6 +150,8 @@ static const char * ksping4_nosix_status_string (nosix_status_t STATUS) {
                         return "NOSIX_ERR_ROUTE";
                 case NOSIX_ERR_NEIGHBOR:
                         return "NOSIX_ERR_NEIGHBOR";
+                case NOSIX_ERR_L3_FALLBACK_FAILED:
+                        return "NOSIX_ERR_L3_FALLBACK_FAILED";
         }
         return "NOSIX_UNKNOWN";
 }
@@ -161,6 +163,8 @@ static uint8_t ksping4_scan_result_from_nosix (nosix_status_t STATUS) {
                         return (uint8_t)(SCAN_RESULT_ERROR | SCAN_RESULT_ROUTE);
                 case NOSIX_ERR_NEIGHBOR:
                         return (uint8_t)(SCAN_RESULT_ERROR | SCAN_RESULT_NEIGHBOR);
+                case NOSIX_ERR_L3_FALLBACK_FAILED:
+                        return (uint8_t)(SCAN_RESULT_ERROR | SCAN_RESULT_L3_FALLBACK);
                 default:
                         return SCAN_RESULT_ERROR;
         }
@@ -417,7 +421,8 @@ static void ICMP4 ( _carry_forward * _prog_data ) {
                 "%s)."
                 , TARGET_IP
                 , TX_FRAME_LENGTH
-                , TX_SURFACE == NOSIX_TX_SURFACE_IPV4_LOCAL
+                , (TX_SURFACE == NOSIX_TX_SURFACE_IPV4_LOCAL
+                        || TX_SURFACE == NOSIX_TX_SURFACE_IPV4_L3)
                         ? " IP bytes"
                         : " wire bytes"
         );
@@ -488,7 +493,7 @@ static void ICMP4 ( _carry_forward * _prog_data ) {
                 uint8_t * FRAME = CAPTURE.frame.data;
                 size_t L2_HEADER_LENGTH = 0;
 
-                if (CAPTURE.flags & NOSIX_CAPTURE_IPV4_LOCAL) {
+                if (CAPTURE.flags & (NOSIX_CAPTURE_IPV4_LOCAL | NOSIX_CAPTURE_IPV4_L3)) {
                         if (CAPTURE.frame.length < 28) {
                                 continue;
                         }

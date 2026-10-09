@@ -5,6 +5,8 @@ the old top-level `nosix_abi/` folder without modifying the bytes or
 publishing any NOSIX private source. Both shipped platforms target amd64.
 
 `include/` contains nosix.h, nosix_poll.h and nosix_datagram.h.
+
+**BetaV3 development note:** The NOSIX public header is updated to ABI 1.5 for scanner compilation, but the checked-in Linux/FreeBSD shared libraries and abi.env files still describe ABI 1.4. They are intentionally **not** relabeled. Build/install must use the native libraries and ABI manifests freshly packaged from NOSIX/BetaV3 on each platform. Kaminowaku's BetaV3 Makefile and installer refuse the older runtime.
 `linux/` and `freebsd/` contain their respective abi.env and
 lib/libnosix.so.1.4.0. Keep LICENSE and BUILD-MANIFEST.txt alongside
 both native binary builds.
