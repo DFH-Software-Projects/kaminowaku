@@ -36,6 +36,12 @@ jobs:
             -iquote .STAGE/include -Ilibs/nosix/include \
             tests/betav3_l3_contract.c -o /tmp/kami-l3-contract
           /tmp/kami-l3-contract
+      - name: Phase 5 - verify fail-closed L2/L3 target pruning
+        run: |
+          cc -std=gnu11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -Wpedantic -Werror -pthread \
+            -iquote .STAGE/include -Ilibs/nosix/include \
+            tests/betav3_target_pruning.c -o /tmp/kami-target-pruning
+          /tmp/kami-target-pruning
       - name: Verify packaged NOSIX ABI is not mislabeled
         run: |
           grep -q '^REAL_NAME=libnosix.so.1.4.0$' libs/nosix/linux/abi.env
