@@ -1,6 +1,6 @@
 NOSIX packaged ABI for Kaminowaku
 Architecture: x86-64 / amd64
-Generated UTC: 2026-10-09T20:34:09Z
+Generated UTC: 2026-10-09T21:14:09Z
 NOSIX source commit: ec23f02c51b0f0c9d5ba3e58a4285ca4f929a4a1
 NOSIX source dirty: false
 NOSIX source packaging: local on-disk files; native builds on Kali and FreeBSD
