@@ -42,6 +42,12 @@ jobs:
             -iquote .STAGE/include -Ilibs/nosix/include \
             tests/betav3_target_pruning.c -o /tmp/kami-target-pruning
           /tmp/kami-target-pruning
+      - name: Verify positive TCP evidence survives port display filtering
+        run: |
+          cc -std=gnu11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -Wpedantic -Werror -pthread \
+            -iquote .STAGE/include -Ilibs/nosix/include \
+            tests/betav3_port_display.c -o /tmp/kami-port-display
+          /tmp/kami-port-display
       - name: Phase 6 - validate staged NOSIX metadata
         run: |
           sh -n scripts/betav3-preflight.sh
