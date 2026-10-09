@@ -4,7 +4,15 @@ All notable user-visible changes to Kaminowaku are recorded here.
 
 Kaminowaku is currently pre-1.0. Entries describe released behavior rather than internal development checkpoints.
 
-## 0.2.0 — Unreleased
+## 0.3.0 — Unreleased
+
+### Added
+
+- IPv4 Layer-3 fallback through NOSIX ABI 1.5 for supported Linux and FreeBSD interfaces.
+- Fail-closed target pruning for recorded L2 neighbor and L3 fallback failures.
+- Port display filtering that hides closed and filtered results while retaining confirmed TCP SYN+ACK evidence.
+- Native NOSIX ABI integration checks and packaging validation.
+
 
 ### Changed
 

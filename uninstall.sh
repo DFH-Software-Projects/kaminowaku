@@ -31,7 +31,7 @@ echo "[kaminowaku] removing installed runtime assets"
 rm -rf "${SHARE_DIR}"
 
 echo "[nosix] removing Kaminowaku-owned private NOSIX runtime"
-rm -f "$LIBDIR/libnosix.so" "$LIBDIR/libnosix.so.1" "$LIBDIR/libnosix.so.1.4.0"
+rm -f "$LIBDIR/libnosix.so" "$LIBDIR/libnosix.so.1" "$LIBDIR/libnosix.so.1.5.0" "$LIBDIR/libnosix.so.1.4.0"
 rmdir "$LIBDIR" 2>/dev/null || true
 echo "[i] System NOSIX and OpenSSL installations have not been modified."
 
