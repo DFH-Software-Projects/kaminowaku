@@ -115,6 +115,9 @@ const char * kscan_icmpv4_result(uint8_t RESULT) {
         if (RESULT & SCAN_RESULT_NEIGHBOR) {
                 return "NEIGHBOR";
         }
+        if (RESULT & SCAN_RESULT_L3_FALLBACK) {
+                return "L3_FALLBACK";
+        }
 
         if (RESULT & SCAN_RESULT_ERROR) {
                 return "ERROR";
@@ -864,8 +867,10 @@ static int kscan_transmit_ready(
         if (
                 SESSION->TX_INTERFACE_AUTO == ISTRUE
                 && SESSION->TX_AUTO_LOCKED != ISTRUE
-                && kwire_scan_last_tx_surface(SESSION->PROG_DATA)
+                && (kwire_scan_last_tx_surface(SESSION->PROG_DATA)
                         == NOSIX_TX_SURFACE_ETHERNET
+                        || kwire_scan_last_tx_surface(SESSION->PROG_DATA)
+                        == NOSIX_TX_SURFACE_IPV4_L3)
                 && kwire_scan_lock_auto_interface(SESSION->PROG_DATA)
                         == NOSIX_OK
         ) {

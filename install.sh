@@ -438,11 +438,16 @@ check_nosix_abi() {
     [ -f "$NOSIX_INCLUDEDIR/nosix_poll.h" ] || fail "NOSIX poll header missing: $NOSIX_INCLUDEDIR/nosix_poll.h"
     [ -f "$NOSIX_INCLUDEDIR/nosix_datagram.h" ] || fail "NOSIX datagram header missing: $NOSIX_INCLUDEDIR/nosix_datagram.h"
     [ -e "$NOSIX_LIBDIR/libnosix.so" ] || fail "NOSIX linker library missing: $NOSIX_LIBDIR/libnosix.so"
+    [ "$NOSIX_REAL_NAME" = "libnosix.so.1.5.0" ] \
+        || fail "BetaV3 requires NOSIX 1.5.0 binary; packaged runtime is $NOSIX_REAL_NAME."
 
     trap 'rm -f "$ABI_SOURCE" "$ABI_BINARY"' EXIT HUP INT TERM
 
     cat > "$ABI_SOURCE" <<'EOF'
 #include <nosix.h>
+#if NOSIX_ABI_VERSION_MAJOR != 1 || NOSIX_ABI_VERSION_MINOR != 5
+#error BetaV3 requires NOSIX ABI 1.5 headers
+#endif
 #include <nosix_poll.h>
 #include <nosix_datagram.h>
 #include <openssl/ssl.h>

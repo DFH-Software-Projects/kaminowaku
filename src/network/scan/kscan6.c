@@ -81,6 +81,9 @@ const char * kscan_icmpv6_result(uint8_t RESULT) {
         if (RESULT & SCAN_RESULT_NEIGHBOR) {
                 return "NEIGHBOR";
         }
+        if (RESULT & SCAN_RESULT_L3_FALLBACK) {
+                return "L3_FALLBACK";
+        }
 
         if (RESULT & SCAN_RESULT_ERROR) {
                 return "ERROR";

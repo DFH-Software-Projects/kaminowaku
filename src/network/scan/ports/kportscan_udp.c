@@ -741,6 +741,7 @@ int kportscan_udp(
                                 if (
                                         STATUS == NOSIX_ERR_ROUTE
                                         || STATUS == NOSIX_ERR_NEIGHBOR
+                                        || STATUS == NOSIX_ERR_L3_FALLBACK_FAILED
                                 ) {
                                         kui_add_line_and_render(
                                                 NOTICE_ERROR

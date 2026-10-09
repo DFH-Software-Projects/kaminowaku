@@ -77,6 +77,10 @@ runtime-check:
 	@set -eu; \
 	[ -f "$(NOSIX_INCLUDEDIR)/nosix.h" ] || { echo "ERROR: Missing packaged NOSIX headers."; exit 1; }; \
 	[ -f "$(NOSIX_ABI_ENV)" ] || { echo "ERROR: Missing NOSIX ABI metadata."; exit 1; }; \
+	grep -Eq '^#define[[:space:]]+NOSIX_ABI_VERSION_MAJOR[[:space:]]+1U([[:space:]]|$$)' "$(NOSIX_INCLUDEDIR)/nosix.h" || { echo "ERROR: BetaV3 requires NOSIX ABI major 1."; exit 1; }; \
+	grep -Eq '^#define[[:space:]]+NOSIX_ABI_VERSION_MINOR[[:space:]]+5U([[:space:]]|$$)' "$(NOSIX_INCLUDEDIR)/nosix.h" || { echo "ERROR: BetaV3 requires NOSIX ABI 1.5 headers; rebuild and package NOSIX/BetaV3."; exit 1; }; \
+	. "./$(NOSIX_ABI_ENV)"; \
+	[ "$$REAL_NAME" = "libnosix.so.1.5.0" ] || { echo "ERROR: BetaV3 requires a native NOSIX 1.5.0 library; packaged runtime is $$REAL_NAME."; exit 1; }; \
 	case "$(OPENSSL_MODE)" in \
 		offline) \
 			[ -f "$(OPENSSL_INCLUDEDIR)/openssl/ssl.h" ] || { echo "ERROR: Missing bundled OpenSSL headers for $(PLATFORM_TAG)."; exit 1; }; \

@@ -1,0 +1,42 @@
+name: BetaV3 Kaminowaku L3 compile
+
+on:
+  push:
+    branches: [BetaV3]
+  pull_request:
+    branches: [BetaV3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-source-and-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system OpenSSL headers
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libssl-dev
+      - name: Project all Kaminowaku headers
+        run: |
+          mkdir -p .STAGE/include
+          find src -type f -name '*.h' -exec cp '{}' .STAGE/include/ \;
+      - name: Compile all scanner source units against NOSIX ABI 1.5
+        run: |
+          set -eu
+          find src -type f -name '*.c' | LC_ALL=C sort | while IFS= read -r src; do
+            cc -std=gnu11 -D_DEFAULT_SOURCE -Wall -Wextra -Wpedantic -pthread \
+              -iquote .STAGE/include -Ilibs/nosix/include \
+              -fsyntax-only "$src"
+          done
+      - name: Exercise L3/PCAP compatibility contract
+        run: |
+          cc -std=gnu11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -Wpedantic -pthread \
+            -iquote .STAGE/include -Ilibs/nosix/include \
+            tests/betav3_l3_contract.c -o /tmp/kami-l3-contract
+          /tmp/kami-l3-contract
+      - name: Verify packaged NOSIX ABI is not mislabeled
+        run: |
+          grep -q '^REAL_NAME=libnosix.so.1.4.0$' libs/nosix/linux/abi.env
+          echo "Release binaries remain ABI 1.4 until the NOSIX BetaV3 native deploy refreshes them."

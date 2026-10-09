@@ -5,6 +5,7 @@
 #include "kscan.h"
 #include "kwire_deadline.h"
 #include "kui.h"
+#include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stddef.h>
@@ -30,6 +31,25 @@ nosix_status_t nosix_restore_auto_interface(
 #define KPCAP_MAGIC_NS 0xA1B23C4DU
 #define KPCAP_LINKTYPE_ETHERNET 1U
 #define KPCAP_LINKTYPE_RAW_IPV4 101U
+
+/* Both local and tunneled IPv4 packets omit Ethernet framing. */
+static inline uint32_t kwire_tx_pcap_linktype(nosix_tx_surface_t SURFACE) {
+        if (SURFACE == NOSIX_TX_SURFACE_IPV4_LOCAL
+                || SURFACE == NOSIX_TX_SURFACE_IPV4_L3) {
+                return KPCAP_LINKTYPE_RAW_IPV4;
+        }
+        if (SURFACE == NOSIX_TX_SURFACE_ETHERNET) {
+                return KPCAP_LINKTYPE_ETHERNET;
+        }
+        return 0;
+}
+
+static inline uint32_t kwire_rx_pcap_linktype(const nosix_capture_t * CAPTURE) {
+        if (!CAPTURE) return 0;
+        return (CAPTURE->flags
+                & (NOSIX_CAPTURE_IPV4_LOCAL | NOSIX_CAPTURE_IPV4_L3))
+                ? KPCAP_LINKTYPE_RAW_IPV4 : KPCAP_LINKTYPE_ETHERNET;
+}
 
 typedef struct KPCAP_GLOBAL_HEADER {
         uint32_t MAGIC;
@@ -303,6 +323,98 @@ static inline void kwire_pcap_close(KPCAP * PCAP) {
         }
 }
 
+/* PCAP has only one linktype per file. Preserve matched RX from an
+ * intentionally different RX interface in a sibling PCAP, not by dropping
+ * its evidence or fabricating an Ethernet header.
+ */
+static inline int kwire_pcap_alternate_rx(
+        const KPCAP * BASE,
+        const nosix_capture_t * CAPTURE,
+        uint32_t LINKTYPE
+) {
+        KPCAP ALT;
+        KPCAP_GLOBAL_HEADER HEADER;
+        FILE * FH;
+        size_t BASE_LEN;
+        int SIZE;
+        int FD;
+        int NEW_FILE = 0;
+
+        if (!BASE || !BASE->PATH[0] || !CAPTURE
+                || !CAPTURE->frame.data || CAPTURE->frame.length == 0
+                || (LINKTYPE != KPCAP_LINKTYPE_ETHERNET
+                        && LINKTYPE != KPCAP_LINKTYPE_RAW_IPV4)) {
+                return ABNORMAL;
+        }
+        BASE_LEN = strlen(BASE->PATH);
+        if (BASE_LEN < 5
+                || strcmp(BASE->PATH + BASE_LEN - 5, ".pcap") != 0) {
+                return ABNORMAL;
+        }
+
+        memset(&ALT, 0, sizeof(ALT));
+        SIZE = snprintf(
+                ALT.PATH, sizeof(ALT.PATH), "%.*s-rx-%s.pcap",
+                (int)(BASE_LEN - 5), BASE->PATH,
+                LINKTYPE == KPCAP_LINKTYPE_RAW_IPV4 ? "ipv4" : "ethernet"
+        );
+        if (SIZE < 0 || (size_t)SIZE >= sizeof(ALT.PATH)) {
+                return ABNORMAL;
+        }
+
+        FH = fopen(ALT.PATH, "r+b");
+        if (!FH) {
+                if (errno != ENOENT) return ABNORMAL;
+                FD = open(ALT.PATH, O_WRONLY | O_CREAT | O_EXCL, 0600);
+                if (FD < 0) return ABNORMAL;
+                FH = fdopen(FD, "wb");
+                if (!FH) {
+                        close(FD);
+                        return ABNORMAL;
+                }
+                NEW_FILE = 1;
+        }
+
+        memset(&HEADER, 0, sizeof(HEADER));
+        if (NEW_FILE) {
+                HEADER.MAGIC = KPCAP_MAGIC_NS;
+                HEADER.VERSION_MAJOR = 2;
+                HEADER.VERSION_MINOR = 4;
+                HEADER.SNAPLEN = 65535;
+                HEADER.NETWORK = LINKTYPE;
+                if (fwrite(&HEADER, sizeof(HEADER), 1, FH) != 1) {
+                        fclose(FH);
+                        remove(ALT.PATH);
+                        return ABNORMAL;
+                }
+        } else if (
+                fread(&HEADER, sizeof(HEADER), 1, FH) != 1
+                || HEADER.MAGIC != KPCAP_MAGIC_NS
+                || HEADER.VERSION_MAJOR != 2
+                || HEADER.VERSION_MINOR != 4
+                || HEADER.NETWORK != LINKTYPE
+                || fseek(FH, 0, SEEK_END) != NORMAL
+        ) {
+                fclose(FH);
+                return ABNORMAL;
+        }
+
+        ALT.FILE_HANDLE = FH;
+        ALT.NETWORK = LINKTYPE;
+        ALT.PACKET_COUNT = NEW_FILE ? 0 : 1;
+        if (kwire_pcap_packet(
+                &ALT, CAPTURE->frame.data, CAPTURE->frame.length,
+                CAPTURE->wire_length,
+                CAPTURE->timestamp_ns ? CAPTURE->timestamp_ns : kscan_now_ns()
+        ) != NORMAL) {
+                kwire_pcap_close(&ALT);
+                return ABNORMAL;
+        }
+
+        kwire_pcap_close(&ALT);
+        return NORMAL;
+}
+
 static inline int kwire_pcap_append_capture(
         _carry_forward * _prog_data,
         const char * SCAN_TYPE,
@@ -366,17 +478,21 @@ static inline int kwire_pcap_append_capture(
                 return ABNORMAL;
         }
 
-        LINKTYPE = (CAPTURE->flags & NOSIX_CAPTURE_IPV4_LOCAL)
-                ? KPCAP_LINKTYPE_RAW_IPV4
-                : KPCAP_LINKTYPE_ETHERNET;
+        LINKTYPE = kwire_rx_pcap_linktype(CAPTURE);
 
         if (
                 HEADER.MAGIC != KPCAP_MAGIC_NS
                 || HEADER.VERSION_MAJOR != 2
                 || HEADER.VERSION_MINOR != 4
-                || HEADER.NETWORK != LINKTYPE
-                || fseek(FILE_HANDLE, 0, SEEK_END) != NORMAL
         ) {
+                fclose(FILE_HANDLE);
+                return ABNORMAL;
+        }
+        if (HEADER.NETWORK != LINKTYPE) {
+                fclose(FILE_HANDLE);
+                return kwire_pcap_alternate_rx(&PCAP, CAPTURE, LINKTYPE);
+        }
+        if (fseek(FILE_HANDLE, 0, SEEK_END) != NORMAL) {
                 fclose(FILE_HANDLE);
                 return ABNORMAL;
         }
@@ -533,9 +649,8 @@ static inline nosix_status_t kwire_write(
                 _prog_data->nosix_net
         );
 
-        LINKTYPE = SURFACE == NOSIX_TX_SURFACE_IPV4_LOCAL
-                ? KPCAP_LINKTYPE_RAW_IPV4
-                : KPCAP_LINKTYPE_ETHERNET;
+        LINKTYPE = kwire_tx_pcap_linktype(SURFACE);
+        if (LINKTYPE == 0) return NOSIX_ERR_STATE;
 
         if (kwire_pcap_set_network(PCAP, LINKTYPE) != NORMAL) {
                 return NOSIX_ERR_SYSTEM;
@@ -736,9 +851,7 @@ static inline void kwire_rx_accept(
                 return;
         }
 
-        LINKTYPE = (CAPTURE->flags & NOSIX_CAPTURE_IPV4_LOCAL)
-                ? KPCAP_LINKTYPE_RAW_IPV4
-                : KPCAP_LINKTYPE_ETHERNET;
+        LINKTYPE = kwire_rx_pcap_linktype(CAPTURE);
 
         if (
                 kwire_pcap_set_network(
@@ -746,6 +859,9 @@ static inline void kwire_rx_accept(
                         LINKTYPE
                 ) != NORMAL
         ) {
+                (void)kwire_pcap_alternate_rx(
+                        KWIRE_ACTIVE_PCAP, CAPTURE, LINKTYPE
+                );
                 return;
         }
 

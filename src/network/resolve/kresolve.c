@@ -81,6 +81,7 @@ static const char * kresolve_nosix_status_string(nosix_status_t STATUS) {
                 case NOSIX_ERR_UNSUPPORTED:     return "NOSIX_ERR_UNSUPPORTED";
                 case NOSIX_ERR_ROUTE:           return "NOSIX_ERR_ROUTE";
                 case NOSIX_ERR_NEIGHBOR:        return "NOSIX_ERR_NEIGHBOR";
+                case NOSIX_ERR_L3_FALLBACK_FAILED: return "NOSIX_ERR_L3_FALLBACK_FAILED";
         }
         return "NOSIX_UNKNOWN";
 }
@@ -515,7 +516,7 @@ static int capture_dns_payload_ipv4(
         FRAME = CAPTURE->frame.data;
         L2_HEADER_LENGTH = 0;
 
-        if (CAPTURE->flags & NOSIX_CAPTURE_IPV4_LOCAL) {
+        if (CAPTURE->flags & (NOSIX_CAPTURE_IPV4_LOCAL | NOSIX_CAPTURE_IPV4_L3)) {
                 if (CAPTURE->frame.length < 28) {
                         return ABNORMAL;
                 }

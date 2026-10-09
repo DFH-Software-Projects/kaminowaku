@@ -263,9 +263,8 @@ nosix_status_t kportscan_write_probe(
         }
 
         SURFACE = kwire_scan_last_tx_surface(_prog_data);
-        LINKTYPE = SURFACE == NOSIX_TX_SURFACE_IPV4_LOCAL
-                ? KPCAP_LINKTYPE_RAW_IPV4
-                : KPCAP_LINKTYPE_ETHERNET;
+        LINKTYPE = kwire_tx_pcap_linktype(SURFACE);
+        if (LINKTYPE == 0) return NOSIX_ERR_STATE;
 
         if (
                 kwire_pcap_set_network(PCAP, LINKTYPE) != NORMAL
@@ -459,8 +458,11 @@ int kportscan_capture_l3(
         FRAME = CAPTURE->frame.data;
         LENGTH = CAPTURE->frame.length;
 
-        if (CAPTURE->flags & NOSIX_CAPTURE_IPV4_LOCAL) {
-                if (FAMILY != NOSIX_ADDRESS_IPV4 || LENGTH < 20) {
+        if (CAPTURE->flags & (NOSIX_CAPTURE_IPV4_LOCAL | NOSIX_CAPTURE_IPV4_L3)) {
+                if (
+                        FAMILY != NOSIX_ADDRESS_IPV4 || LENGTH < 20
+                        || (FRAME[0] >> 4) != 4
+                ) {
                         return ABNORMAL;
                 }
                 *IP = FRAME;
@@ -564,6 +566,7 @@ const char * kportscan_nosix_status_string(nosix_status_t STATUS) {
                 case NOSIX_ERR_UNSUPPORTED: return "NOSIX_ERR_UNSUPPORTED";
                 case NOSIX_ERR_ROUTE: return "NOSIX_ERR_ROUTE";
                 case NOSIX_ERR_NEIGHBOR: return "NOSIX_ERR_NEIGHBOR";
+                case NOSIX_ERR_L3_FALLBACK_FAILED: return "NOSIX_ERR_L3_FALLBACK_FAILED";
         }
         return "NOSIX_UNKNOWN";
 }
