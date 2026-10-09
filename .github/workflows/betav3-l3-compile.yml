@@ -48,10 +48,8 @@ jobs:
           sh scripts/betav3-preflight.sh --staging
       - name: Phase 6 - release preflight must require native NOSIX 1.5
         run: |
-          if grep -q '^REAL_NAME=libnosix.so.1.4.0
- libs/nosix/linux/abi.env ||
-             grep -q '^REAL_NAME=libnosix.so.1.4.0
- libs/nosix/freebsd/abi.env; then
+          if grep -Fxq 'REAL_NAME=libnosix.so.1.4.0' libs/nosix/linux/abi.env ||
+             grep -Fxq 'REAL_NAME=libnosix.so.1.4.0' libs/nosix/freebsd/abi.env; then
             if sh scripts/betav3-preflight.sh --release; then
               echo "ERROR: release preflight accepted stale 1.4 library" >&2
               exit 1
