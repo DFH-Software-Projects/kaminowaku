@@ -2,7 +2,7 @@
 
 This document maps the current Kaminowaku source tree, subsystem boundaries, control flow, and direct internal source relationships.
 
-It is a **maintainer reference for the current implementation on `beta-v2`**. It describes how the active codebase is connected; it is not a historical design document and does not describe retired architecture.
+It is a **maintainer reference for the current implementation on `BetaV3`**. It describes how the active codebase is connected; it is not a historical design document and does not describe retired architecture.
 
 ## Contents
 

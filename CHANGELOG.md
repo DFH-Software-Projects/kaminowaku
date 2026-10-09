@@ -4,7 +4,16 @@ All notable user-visible changes to Kaminowaku are recorded here.
 
 Kaminowaku is currently pre-1.0. Entries describe released behavior rather than internal development checkpoints.
 
-## 0.2.0 — Unreleased
+## 0.3.0 — Unreleased
+
+### Added
+
+- IPv4 Layer-3 transmit and receive support through NOSIX ABI 1.5 on supported Linux and FreeBSD tunnel interfaces;
+- explicit Layer-3 transmit failure reporting and associated target-pruning safeguards;
+- display filtering that omits closed and filtered ports while preserving confirmed TCP SYN+ACK evidence;
+- native ABI packaging validation and Linux/FreeBSD regression checks.
+
+
 
 ### Changed
 

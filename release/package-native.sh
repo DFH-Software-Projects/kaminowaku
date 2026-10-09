@@ -20,7 +20,7 @@ case "$(uname -m)" in amd64|x86_64) ARCH=amd64 ;; *) fail "amd64 only." ;; esac
 [ -s .STAGE/bin/kaminowaku ] || fail "Run './install.sh all BUILD=release --offline' on this machine first."
 [ -s .STAGE/meta/build-mode.env ] || fail "Missing .STAGE build mode; rebuild with ./install.sh all BUILD=release --offline."
 grep -Fx 'OPENSSL_MODE=offline' .STAGE/meta/build-mode.env >/dev/null     || fail "Cannot package a system-linked --online executable as an offline release. Rebuild with --offline."
-[ -s ".STAGE/lib/kaminowaku/libnosix.so.1.4.0" ] || fail "Staged NOSIX library is missing."
+[ -s ".STAGE/lib/kaminowaku/libnosix.so.1.5.0" ] || fail "Staged NOSIX library is missing."
 [ -s "libs/openssl/$PLATFORM/BUILD-MANIFEST.txt" ] || fail "Native OpenSSL package missing."
 [ -s "libs/openssl/source/openssl-3.5.8.tar.gz" ] || fail "Vendored OpenSSL source archive missing."
 if command -v ldd >/dev/null 2>&1; then
@@ -29,17 +29,20 @@ if command -v ldd >/dev/null 2>&1; then
     printf '%s\n' "$linkage" | grep 'libssl.so\|libcrypto.so' >/dev/null 2>&1 && fail "Unexpected shared system OpenSSL linkage."
     printf '%s\n' "$linkage" | grep 'libnosix.so.1' >/dev/null 2>&1 || fail "Staged NOSIX was not linked."
 fi
+SOURCE_VERSION=$(sed -n 's/^[[:space:]]*#define[[:space:]]*VERSION[[:space:]]*"\([^"]*\)".*/\1/p' src/data.h)
+[ -n "$SOURCE_VERSION" ] || fail "Kaminowaku source VERSION is missing."
 OUTPUT="$HERE/$PLATFORM-$ARCH"
 mkdir -p "$OUTPUT/bin"
 install -m 755 .STAGE/bin/kaminowaku "$OUTPUT/bin/kaminowaku"
 BINARY_SHA256=$(hash_file "$OUTPUT/bin/kaminowaku")
-NOSIX_SHA256=$(hash_file "libs/nosix/$PLATFORM/lib/libnosix.so.1.4.0")
+NOSIX_SHA256=$(hash_file "libs/nosix/$PLATFORM/lib/libnosix.so.1.5.0")
 OPENSSL_SOURCE_SHA256=$(hash_file "libs/openssl/source/openssl-3.5.8.tar.gz")
 [ "$OPENSSL_SOURCE_SHA256" = "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2" ] || fail "OpenSSL source archive did not match the pinned official checksum."
 cat > "$OUTPUT/BUILD-MANIFEST.txt" <<EOF
 PLATFORM=$PLATFORM
 ARCH=$ARCH
 BUILD=release
+VERSION=$SOURCE_VERSION
 BINARY_SHA256=$BINARY_SHA256
 NOSIX_SHA256=$NOSIX_SHA256
 OPENSSL_SOURCE_SHA256=$OPENSSL_SOURCE_SHA256

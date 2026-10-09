@@ -48,6 +48,15 @@ jobs:
             -iquote .STAGE/include -Ilibs/nosix/include \
             tests/betav3_port_display.c -o /tmp/kami-port-display
           /tmp/kami-port-display
+      - name: Verify Kaminowaku 0.3.0 release version references
+        run: |
+          grep -Fx '#define VERSION "0.3.0"' src/data.h
+          grep -Fq '**Kaminowaku 0.3.0**' README.md
+          grep -Fq '## 0.3.0 — Unreleased' CHANGELOG.md
+          grep -Fq '0.3.0 (`BetaV3` development branch)' SECURITY.md
+          grep -Fq 'Kaminowaku 0.3.0.' docs/BOOK_LANGUAGE_V1.md
+          sh -n release/package-native.sh
+          sh -n uninstall.sh
       - name: Phase 6 - validate staged NOSIX metadata
         run: |
           sh -n scripts/betav3-preflight.sh
