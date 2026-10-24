@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static void check_run(const char * command, size_t count) {
         BOOK_ARGUMENTS * params = calloc(1, sizeof(*params));
@@ -28,7 +29,16 @@ static void check_run(const char * command, size_t count) {
         assert(params->count == count);
         session->arguments = params;
         session->target = flower;
+        // Mirror the real Book session's monotonic execution deadline;
+        // this network-free test bypasses books_session_prepare().
+        struct timespec now;
+        assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
         session->started_ns = 1;
+        session->execution_deadline_ns =
+                (uint64_t)now.tv_sec * 1000000000ULL
+                + (uint64_t)now.tv_nsec
+                + 30000000000ULL;
+        session->state = BOOK_SESSION_RUNTIME;
         (void)snprintf((char *)session->book_name, sizeof(session->book_name), "arg-smoke");
         (void)snprintf((char *)flower->TID, sizeof(flower->TID), "SMOKE123");
 
