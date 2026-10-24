@@ -1,0 +1,37 @@
+name: Beta 0.3.1 Book argument validation
+
+on:
+  push:
+    branches: [beta-0.3.1]
+  pull_request:
+    branches: [beta-0.3.1]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parser-and-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and exercise the standalone Book argument parser
+        run: |
+          set -eu
+          cc -std=c11 -Wall -Wextra -Wpedantic -Werror \
+            -Isrc/books tests/book_args_test.c src/books/book_args.c \
+            -o /tmp/kami-book-args-test
+          /tmp/kami-book-args-test
+      - name: Prepare native syntax-check dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libssl-dev
+      - name: Syntax-check the complete Kaminowaku C source tree
+        run: |
+          set -eu
+          mkdir -p .STAGE/include
+          find src -type f -name '*.h' -exec cp '{}' .STAGE/include/ \;
+          find src -type f -name '*.c' | LC_ALL=C sort | while IFS= read -r source; do
+            cc -std=gnu11 -D_DEFAULT_SOURCE -Wall -Wextra -Wpedantic -pthread \
+              -iquote .STAGE/include -Ilibs/nosix/include \
+              -fsyntax-only "$source"
+          done
