@@ -160,7 +160,45 @@ def read_book_output(path):
     return fields
 
 
-def check_pcap(path, require_packets=True):
+def ipv4_tcp_ports(packet, ip_offset):
+    """Extract TCP source/destination ports from an unfragmented IPv4 header."""
+    if len(packet) < ip_offset + 20:
+        return ()
+    first = packet[ip_offset]
+    if first >> 4 != 4:
+        return ()
+    ihl = (first & 15) * 4
+    if ihl < 20 or len(packet) < ip_offset + ihl + 4:
+        return ()
+    if packet[ip_offset + 9] != 6:
+        return ()
+    flags_fragment = struct.unpack_from(">H", packet, ip_offset + 6)[0]
+    if flags_fragment & 0x1FFF:
+        return ()
+    return struct.unpack_from(">HH", packet, ip_offset + ihl)
+
+
+def pcap_tcp_ports(frame, link):
+    """Decode TCP ports from Ethernet (incl. VLAN) or raw-IPv4 PCAP frames."""
+    if link == 101:
+        return ipv4_tcp_ports(frame, 0)
+    if link != 1 or len(frame) < 14:
+        return ()
+    offset = 14
+    ethertype = struct.unpack_from(">H", frame, 12)[0]
+    for _ in range(2):
+        if ethertype not in (0x8100, 0x88A8):
+            break
+        if len(frame) < offset + 4:
+            return ()
+        ethertype = struct.unpack_from(">H", frame, offset + 2)[0]
+        offset += 4
+    if ethertype != 0x0800:
+        return ()
+    return ipv4_tcp_ports(frame, offset)
+
+
+def check_pcap(path, require_packets=True, expected_tcp_port=None):
     raw = path.read_bytes()
     if len(raw) < 24:
         raise ValueError("%s: truncated PCAP header" % path)
@@ -175,6 +213,7 @@ def check_pcap(path, require_packets=True):
     if (major, minor) != (2, 4) or snaplen == 0 or link not in (1, 101):
         raise ValueError("%s: invalid PCAP global header" % path)
     packets = 0
+    matched_requested_port = False
     offset = 24
     while offset < len(raw):
         if len(raw) - offset < 16:
@@ -183,10 +222,16 @@ def check_pcap(path, require_packets=True):
         offset += 16
         if captured > snaplen or captured > original or captured > len(raw) - offset:
             raise ValueError("%s: invalid captured packet length" % path)
+        frame = raw[offset:offset + captured]
+        if expected_tcp_port is not None and expected_tcp_port in pcap_tcp_ports(frame, link):
+            matched_requested_port = True
         offset += captured
         packets += 1
     if require_packets and packets == 0:
         raise ValueError("%s: header-only PCAP" % path)
+    if expected_tcp_port is not None and not matched_requested_port:
+        raise ValueError("%s: no captured TCP packet for requested port %d" %
+                         (path, expected_tcp_port))
     return packets
 
 
@@ -215,7 +260,8 @@ def verify_target(target_dir, ports):
         captures = pcaps(target_dir, book)
         if not captures:
             raise ValueError("missing PCAP for %s" % book)
-        packet_count = check_pcap(captures[-1], require_packets=True)
+        packet_count = check_pcap(captures[-1], require_packets=True,
+                                  expected_tcp_port=int(fields["PORT"]))
         print("PASS %-19s PORT=%-5s PCAP=%s packets=%d" %
               (book, fields["PORT"], captures[-1].name, packet_count))
 
