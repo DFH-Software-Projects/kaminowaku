@@ -5,8 +5,12 @@ set -eu
 
 HERE=$(CDPATH= cd "$(dirname "$0")" && pwd)
 ROOT=$(CDPATH= cd "$HERE/../.." && pwd)
-VERSION=3.5.8
-SOURCE_SHA256=a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2
+LOCK="$HERE/source/openssl.lock"
+[ -s "$LOCK" ] || { echo "ERROR: OpenSSL source lock missing: $LOCK" >&2; exit 1; }
+VERSION=$(sed -n 's/^VERSION=//p' "$LOCK" | tr -d '\r')
+SOURCE_SHA256=$(sed -n 's/^SOURCE_SHA256=//p' "$LOCK" | tr -d '\r' | tr '[:upper:]' '[:lower:]')
+printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo 'ERROR: invalid OpenSSL version in lock' >&2; exit 1; }
+printf '%s\n' "$SOURCE_SHA256" | grep -Eq '^[0-9a-f]{64}$' || { echo 'ERROR: invalid OpenSSL source SHA-256 in lock' >&2; exit 1; }
 SOURCE_TARBALL="$HERE/source/openssl-$VERSION.tar.gz"
 JOBS="${JOBS:-2}"
 
@@ -33,7 +37,7 @@ case "$(uname -m)" in
     *) die "Only amd64 native OpenSSL builds are packaged." ;;
 esac
 [ -f "$SOURCE_TARBALL" ] || die "Put verified official OpenSSL source at $SOURCE_TARBALL"
-[ "$(hash_file "$SOURCE_TARBALL")" = "$SOURCE_SHA256" ] || die "OpenSSL 3.5.8 source SHA-256 mismatch."
+[ "$(hash_file "$SOURCE_TARBALL")" = "$SOURCE_SHA256" ] || die "OpenSSL pinned source SHA-256 mismatch."
 WORK="$ROOT/.STAGE/openssl-$PLATFORM-$ARCH"
 BUILD="$WORK/openssl-$VERSION"
 DEST="$WORK/install"

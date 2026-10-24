@@ -61,7 +61,7 @@ usage() {
     echo "  ./install.sh [target] [BUILD=debug|release] [--offline|--online]"
     echo ""
     echo "OpenSSL mode:"
-    echo "  --offline  Build current source against bundled OpenSSL 3.5.8 static libraries (default)"
+    echo "  --offline  Build current source against bundled OpenSSL static libraries (default)"
     echo "  --online   Link against system-managed OpenSSL 3; if needed, the install"
     echo "             target may install build dependencies via apt or pkg"
     echo "             (always compiles Kaminowaku; requires clang and make)"
@@ -217,6 +217,12 @@ check_system_openssl_dependency() {
 
 # Vendored OpenSSL: no package manager, network access or system OpenSSL.
 check_openssl_dependency() {
+    OPENSSL_LOCK="$PACKAGED_OPENSSL_ROOT/source/openssl.lock"
+    [ -s "$OPENSSL_LOCK" ] || fail "Vendored OpenSSL source lock missing."
+    OPENSSL_VERSION=$(sed -n 's/^VERSION=//p' "$OPENSSL_LOCK" | tr -d '\r')
+    OPENSSL_SOURCE_SHA256=$(sed -n 's/^SOURCE_SHA256=//p' "$OPENSSL_LOCK" | tr -d '\r' | tr '[:upper:]' '[:lower:]')
+    printf '%s\n' "$OPENSSL_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || fail "Invalid vendored OpenSSL version."
+    printf '%s\n' "$OPENSSL_SOURCE_SHA256" | grep -Eq '^[0-9a-f]{64}$' || fail "Invalid vendored OpenSSL source SHA-256."
     OPENSSL_INCLUDEDIR="$PACKAGED_OPENSSL_ROOT/$PLATFORM_TAG/include"
     OPENSSL_LIBDIR="$PACKAGED_OPENSSL_ROOT/$PLATFORM_TAG/lib"
     OPENSSL_MANIFEST="$PACKAGED_OPENSSL_ROOT/$PLATFORM_TAG/BUILD-MANIFEST.txt"
@@ -226,17 +232,17 @@ check_openssl_dependency() {
     [ -s "$OPENSSL_LIBDIR/libcrypto.a" ] || fail "Missing packaged libcrypto.a; run libs/openssl/build-native.sh on $PLATFORM_TAG."
     [ -s "$PACKAGED_OPENSSL_ROOT/LICENSE.txt" ] || fail "Packaged OpenSSL license missing."
     [ -s "$OPENSSL_MANIFEST" ] || fail "Packaged OpenSSL build manifest missing."
-    grep -Fx 'VERSION=3.5.8' "$OPENSSL_MANIFEST" >/dev/null || fail "OpenSSL version mismatch."
+    grep -Fx "VERSION=$OPENSSL_VERSION" "$OPENSSL_MANIFEST" >/dev/null || fail "OpenSSL version mismatch."
     grep -Fx "PLATFORM=$PLATFORM_TAG" "$OPENSSL_MANIFEST" >/dev/null || fail "OpenSSL platform mismatch."
     grep -Fx "ARCH=$ARCH_TAG" "$OPENSSL_MANIFEST" >/dev/null || fail "OpenSSL architecture mismatch."
-    grep -Fx 'SOURCE_SHA256=a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2' "$OPENSSL_MANIFEST" >/dev/null || fail "OpenSSL source provenance mismatch."
+    grep -Fx "SOURCE_SHA256=$OPENSSL_SOURCE_SHA256" "$OPENSSL_MANIFEST" >/dev/null || fail "OpenSSL source provenance mismatch."
     hash_file() {
         if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d ' ' -f 1
         elif command -v sha256 >/dev/null 2>&1; then sha256 -q "$1"
         else fail "SHA-256 utility unavailable."; fi
     }
-    [ -s "$PACKAGED_OPENSSL_ROOT/source/openssl-3.5.8.tar.gz" ] || fail "Vendored OpenSSL source archive is missing."
-    [ "$(hash_file "$PACKAGED_OPENSSL_ROOT/source/openssl-3.5.8.tar.gz")" = "a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2" ] || fail "Vendored OpenSSL source archive SHA-256 mismatch."
+    [ -s "$PACKAGED_OPENSSL_ROOT/source/openssl-$OPENSSL_VERSION.tar.gz" ] || fail "Vendored OpenSSL source archive is missing."
+    [ "$(hash_file "$PACKAGED_OPENSSL_ROOT/source/openssl-$OPENSSL_VERSION.tar.gz")" = "$OPENSSL_SOURCE_SHA256" ] || fail "Vendored OpenSSL source archive SHA-256 mismatch."
     for lib in libssl libcrypto; do
         key=$(printf '%s' "$lib" | tr '[:lower:]' '[:upper:]')
         expected=$(sed -n "s/^${key}_SHA256=//p" "$OPENSSL_MANIFEST")
@@ -246,7 +252,7 @@ check_openssl_dependency() {
     OPENSSL_CFLAGS="-I$OPENSSL_INCLUDEDIR"
     OPENSSL_LIBS="$OPENSSL_LIBDIR/libssl.a $OPENSSL_LIBDIR/libcrypto.a"
     if [ "$UNAME_S" = Linux ]; then OPENSSL_LIBS="$OPENSSL_LIBS -ldl"; fi
-    echo "[deps] Packaged OpenSSL 3.5.8 ready for $PLATFORM_TAG/$ARCH_TAG"
+    echo "[deps] Packaged OpenSSL $OPENSSL_VERSION ready for $PLATFORM_TAG/$ARCH_TAG"
 }
 
 # Both offline and online installations compile the current source.
