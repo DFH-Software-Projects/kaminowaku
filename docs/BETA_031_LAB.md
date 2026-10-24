@@ -40,7 +40,7 @@ book web-enum --port 8080 --tls false --path /status
 book cve-2026-110264 --port 8081 --tls false --path /users/sign_in --timeout 1000
 ```
 
-Replace `<FIXTURE_IPV4>` with the reachable lab address. The CVE Book's `--timeout` is in milliseconds; it **must not exceed** the active profile/native receive maximum. If the profile maximum is below 1000 ms, reduce the argument or explicitly configure a suitable lab profile.
+Replace `<FIXTURE_IPV4>` with the reachable lab address. The CVE Book's `--timeout` is in milliseconds; it **must not exceed** the active profile/native receive maximum. Without `--timeout`, the Book uses the profile/native default (it does not force 4,000 ms). If the profile maximum is below 1000 ms, reduce the argument or explicitly configure a suitable lab profile.
 
 To confirm the same argument handling in target context, run:
 

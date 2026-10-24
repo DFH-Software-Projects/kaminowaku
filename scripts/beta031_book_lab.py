@@ -153,9 +153,10 @@ def read_book_output(path):
         if len(parts) != 4 or parts[0] != "FIELD":
             raise ValueError("invalid FIELD line in %s" % path)
         _, _color, key, encoded = parts
-        if not key or key in fields:
-            raise ValueError("invalid or duplicated FIELD in %s" % path)
-        fields[key] = bytes.fromhex(encoded).decode("utf-8", "replace")
+        if not key:
+            raise ValueError("invalid empty FIELD key in %s" % path)
+        # Repeated keys are meaningful: ssh-kex writes KEX, HOSTKEY, CIPHER, etc.
+        fields.setdefault(key, []).append(bytes.fromhex(encoded).decode("utf-8", "replace"))
     return fields
 
 
@@ -209,7 +210,7 @@ def verify_target(target_dir, ports):
             raise ValueError("missing Book output: %s" % output)
         saved = read_book_output(output)
         for key, wanted in fields.items():
-            if saved.get(key) != wanted:
+            if wanted not in saved.get(key, []):
                 raise ValueError("%s: %s expected %r, observed %r" % (book, key, wanted, saved.get(key)))
         captures = pcaps(target_dir, book)
         if not captures:

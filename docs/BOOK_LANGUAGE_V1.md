@@ -276,7 +276,7 @@ The global is also visible to imported modules. For names containing hyphens, us
 | `web-enum` | 443 | `--port`, `--path`, `--tls true|false` |
 | `cve-2026-110264` | 80 | `--port`, `--path`, `--tls true|false`, `--timeout` |
 
-`--timeout` is measured in milliseconds and cannot exceed the native hard or active profile maximum. The Book author's chosen defaults remain unchanged for no-argument runs.
+`--timeout` is measured in milliseconds and cannot exceed the native hard or active profile maximum. The GitLab assessment now leaves the timeout unspecified when omitted, allowing the active profile/native timeout to be used instead of forcing a 4,000 ms value. Existing protocol ports and request paths remain unchanged for no-argument runs.
 
 ## Reusable modules
 

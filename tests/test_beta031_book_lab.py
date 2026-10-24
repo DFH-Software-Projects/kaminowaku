@@ -104,6 +104,17 @@ class TestEvidence(unittest.TestCase):
         lab.verify_target(self.target, self.params)
         self.assertEqual(lab.check_pcap(self.target / "web-enum-TID-123.pcap"), 1)
 
+    def test_repeated_field_names_are_valid(self):
+        output = self.target / "ssh-kex.out"
+        with output.open("a", encoding="ascii") as stream:
+            stream.write("FIELD\tdefault\tKEX\t637572766532353531392d736861323536\n")
+            stream.write("FIELD\tdefault\tKEX\t6469666669652d68656c6c6d616e\n")
+            stream.write("FIELD\tdefault\tHOSTKEY\t7373682d65643235353139\n")
+        decoded = lab.read_book_output(output)
+        self.assertEqual(len(decoded["KEX"]), 2)
+        self.assertEqual(decoded["HOSTKEY"], ["ssh-ed25519"])
+        lab.verify_target(self.target, self.params)
+
     def test_malformed_pcap_fails(self):
         (self.target / "web-enum-TID-123.pcap").write_bytes(b"\xd4\xc3\xb2\xa1")
         with self.assertRaises(ValueError):
