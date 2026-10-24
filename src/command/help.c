@@ -360,13 +360,16 @@ void help(_carry_forward * _prog_data) {
                         kui_add_line(NOTICE_INFO "Raw PTY output is saved in the active target directory as <tool>-<epoch_ns>.out.");
                         kui_add_line(NOTICE_INFO "External tool execution does not create a Kaminowaku PCAP session or update Kami TX/RX counters.");
                 } else if (strcmp((char*)_prog_data->cmd_tokens[1], "book") == MATCH) {
-                        kui_add_line("< Usage: book [ " ANSI_COLOR_CYAN "<book-name>" ANSI_COLOR_RESET " ]");
+                        kui_add_line("< Usage: book [ " ANSI_COLOR_CYAN "<book-name>" ANSI_COLOR_RESET " [--name value | --name=value] ... ]");
                         kui_add_line(NOTICE_INFO "Run " ANSI_COLOR_CYAN "book" ANSI_COLOR_RESET " with no arguments to list all available system/user books.");
                         kui_add_line(NOTICE_INFO "Run a canonical system/user scan book through a capture-gated BOOK_SESSION.");
                         kui_add_line(NOTICE_INFO "Project context runs the book sequentially against every target; target context runs only the active target.");
                         kui_add_line(NOTICE_INFO "Successful output atomically replaces BOOKNAME.out; failures and bail preserve the previous snapshot.");
                         kui_add_line(NOTICE_INFO "Every executed target retains its timestamped PCAP artifact.");
                         kui_add_line(NOTICE_INFO "Book names may contain letters, numbers, hyphens, and underscores.");
+                        kui_add_line(NOTICE_INFO "Lua Books read operator parameters as strings from the global args table.");
+                        kui_add_line(NOTICE_INFO "Examples: book ssh-kex --port 2222; book web-enum --port 8443 --path /status");
+                        kui_add_line(NOTICE_INFO "Up to 16 named parameters; duplicate keys and missing values are rejected before capture.");
                         kui_add_line(NOTICE_INFO "Alias: " ANSI_COLOR_MAGENTA "b" ANSI_COLOR_RESET);
                 } else if (strcmp((char*)_prog_data->cmd_tokens[1], "") == MATCH) { // TEMPLATE
 
