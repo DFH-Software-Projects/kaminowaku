@@ -14,11 +14,17 @@ lab = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(lab)
 
 
-def fixture_pcap(path, packets=1):
+def fixture_pcap(path, packets=1, port=8080):
     blob = bytearray(struct.pack("<IHHiiII", 0xA1B2C3D4, 2, 4, 0, 0, 65535, 1))
     for _ in range(packets):
-        blob.extend(struct.pack("<IIII", 1, 2, 3, 3))
-        blob.extend(b"abc")
+        ethernet = b"\xaa" * 6 + b"\xbb" * 6 + b"\x08\x00"
+        ipv4 = (b"\x45\x00" + struct.pack(">H", 40) + b"\x00\x00\x00\x00"
+                + b"\x40\x06\x00\x00" + b"\xc0\x00\x02\x01"
+                + b"\xc0\x00\x02\x02")
+        tcp = struct.pack(">HH", 40000, port) + b"\x00" * 16
+        frame = ethernet + ipv4 + tcp
+        blob.extend(struct.pack("<IIII", 1, 2, len(frame), len(frame)))
+        blob.extend(frame)
     path.write_bytes(blob)
 
 
@@ -95,7 +101,8 @@ class TestEvidence(unittest.TestCase):
         }
         for name, fields in self.fields.items():
             fixture_out(self.target / (name + ".out"), fields)
-            fixture_pcap(self.target / (name + "-TID-123.pcap"))
+            ports = {"ssh-kex": 2222, "web-enum": 8080, "cve-2026-110264": 8081}
+            fixture_pcap(self.target / (name + "-TID-123.pcap"), port=ports[name])
 
     def tearDown(self):
         self.temp.cleanup()
@@ -114,6 +121,16 @@ class TestEvidence(unittest.TestCase):
         self.assertEqual(len(decoded["KEX"]), 2)
         self.assertEqual(decoded["HOSTKEY"], ["ssh-ed25519"])
         lab.verify_target(self.target, self.params)
+
+    def test_wrong_tcp_port_rejected(self):
+        fixture_pcap(self.target / "web-enum-TID-123.pcap", port=9999)
+        with self.assertRaisesRegex(ValueError, "no captured TCP packet"):
+            lab.verify_target(self.target, self.params)
+
+    def test_raw_ipv4_tcp_port(self):
+        # Native captures may use raw IPv4 rather than Ethernet.
+        frame = (self.target / "web-enum-TID-123.pcap").read_bytes()[40:]
+        self.assertIn(8080, lab.pcap_tcp_ports(frame[14:], 101))
 
     def test_malformed_pcap_fails(self):
         (self.target / "web-enum-TID-123.pcap").write_bytes(b"\xd4\xc3\xb2\xa1")

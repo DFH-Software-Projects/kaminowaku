@@ -61,7 +61,7 @@ python3 scripts/beta031_book_lab.py verify \
   --target-dir /root/.kaminowaku/projects/beta031lab/<TID>
 ```
 
-The verifier reads the real `KAMINOWAKU_BOOK_OUT` format, decodes hex field values, checks the expected port and service response for all three Books, and validates **at least one captured packet** in each latest matching PCAP. It rejects incomplete PCAP records, bad headers, missing files, and mismatched result fields. Change its `--ssh-port`, `--web-port`, and `--gitlab-port` options if the fixture used non-default ports.
+The verifier reads the real `KAMINOWAKU_BOOK_OUT` format, decodes hex field values, checks the expected port and service response for all three Books, and validates **at least one captured TCP packet with the requested port** in each latest matching PCAP (Ethernet/VLAN or raw IPv4). It rejects incomplete PCAP records, bad headers, missing files, and mismatched result fields. Change its `--ssh-port`, `--web-port`, and `--gitlab-port` options if the fixture used non-default ports.
 
 Pass criteria:
 

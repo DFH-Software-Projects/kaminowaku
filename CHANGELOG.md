@@ -12,7 +12,7 @@ Kaminowaku is currently pre-1.0. Entries describe released behavior rather than 
 - Configurable ports for all shipped Books; HTTP Book path/TLS/timeout options.
 - Argument regression tests and beta-specific CI.
 - Local SSH, HTTP, and synthetic GitLab lab fixtures, evidence verifier, and operator acceptance checklist.
-- Evidence verifier handles repeated Book fields (including SSH algorithm lists).
+- Evidence verifier handles repeated Book fields (including SSH algorithm lists) and checks the requested TCP port in captured PCAP frames.
 - GitLab Book falls back to the active receive timeout rather than forcing a 4-second default.
 
 ### Preserved
