@@ -144,7 +144,8 @@ def stop_servers(servers):
 
 def read_book_output(path):
     lines = path.read_text(encoding="ascii").splitlines()
-    if len(lines) < 2 or lines[1] != "BOOK\t" + path.stem:
+    if (len(lines) < 2 or lines[0] != "KAMINOWAKU_BOOK_OUT\t1"
+            or lines[1] != "BOOK\t" + path.stem):
         raise ValueError("invalid BOOK identity/header in %s" % path)
     fields = {}
     for line in lines[2:]:

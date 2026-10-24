@@ -23,7 +23,7 @@ def fixture_pcap(path, packets=1):
 
 
 def fixture_out(path, fields):
-    lines = ["# BOOK_OUT test", "BOOK\t" + path.stem]
+    lines = ["KAMINOWAKU_BOOK_OUT\t1", "BOOK\t" + path.stem]
     for key, value in fields.items():
         lines.append("FIELD\tdefault\t%s\t%s" % (key, value.encode("utf-8").hex()))
     path.write_text("\n".join(lines) + "\n", encoding="ascii")
