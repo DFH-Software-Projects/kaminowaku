@@ -1504,6 +1504,8 @@ int book_native_install(BOOK_RUNTIME * runtime) {
         BOOK_NATIVE_STATE * state;
         BOOK_VALUE private_table;
         BOOK_VALUE target;
+        BOOK_VALUE args;
+        BOOK_SESSION * session;
 
         if (!runtime) return ABNORMAL;
         if (book_runtime_native_state(runtime)) return NORMAL;
@@ -1613,6 +1615,34 @@ int book_native_install(BOOK_RUNTIME * runtime) {
         }
 
         state->private_table = private_table;
+
+        // @@ Every Book receives its invocation parameters as an isolated Lua
+        // table of strings. Nothing here mutates the original CLI arguments or
+        // native Book session; protocol/user modules can read the same global.
+        session = book_runtime_session(runtime);
+        if (book_runtime_make_table(runtime, &args) != NORMAL) {
+                book_native_destroy(runtime);
+                return ABNORMAL;
+        }
+
+        if (session && session->arguments) {
+                for (size_t i = 0; i < session->arguments->count; i++) {
+                        const BOOK_ARGUMENT * entry = &session->arguments->items[i];
+                        if (
+                                book_native_table_set_string_value(
+                                        runtime, args, entry->name, entry->value
+                                ) != NORMAL
+                        ) {
+                                book_native_destroy(runtime);
+                                return ABNORMAL;
+                        }
+                }
+        }
+
+        if (book_runtime_set_global(runtime, "args", args) != NORMAL) {
+                book_native_destroy(runtime);
+                return ABNORMAL;
+        }
 
         // @@ Public read-only-by-convention snapshot used by protocol modules.
         // Lua may mutate its own table copy; native session state is unaffected.
