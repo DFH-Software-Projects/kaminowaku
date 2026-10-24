@@ -35,3 +35,31 @@ jobs:
               -iquote .STAGE/include -Ilibs/nosix/include \
               -fsyntax-only "$source"
           done
+
+  runtime-integration:
+    name: Native Lua invocation smoke
+    runs-on: ubuntu-24.04
+    needs: parser-and-source
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile native scanner and dependencies
+        run: |
+          make OPENSSL_MODE=offline \
+            CFLAGS='-std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -pthread' \
+            LDFLAGS='-pthread'
+      - name: Compile and execute Book Lua runtime contract
+        run: |
+          set -eu
+          mkdir -p .STAGE/include
+          find src -type f -name '*.h' -exec cp '{}' .STAGE/include/ \;
+          cc -std=gnu11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -pthread \
+            -iquote .STAGE/include -Ilibs/nosix/include \
+            tests/book_args_runtime_test.c \
+            $(find .STAGE/obj -type f -name '*.o' ! -name main.o | LC_ALL=C sort) \
+            -L.STAGE/lib/kaminowaku \
+            -Wl,-rpath,"$PWD/.STAGE/lib/kaminowaku" \
+            -lnosix libs/openssl/linux/lib/libssl.a \
+            libs/openssl/linux/lib/libcrypto.a -ldl \
+            -o /tmp/kami-book-runtime-test
+          /tmp/kami-book-runtime-test
