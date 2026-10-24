@@ -16,7 +16,7 @@ Banner source: [Emoji Combos](https://emojicombos.com/)
 
 # Kaminowaku
 
-**Kaminowaku 0.3.0** is a low-level network enumeration framework for Linux and FreeBSD. It organizes work into projects and targets, performs ICMP, DNS, TCP, UDP, banner, HTTP/TLS, and Book-driven enumeration, and persists scan evidence alongside each target.
+**Kaminowaku 0.3.1** is a low-level network enumeration framework for Linux and FreeBSD. It organizes work into projects and targets, performs ICMP, DNS, TCP, UDP, banner, HTTP/TLS, and Book-driven enumeration, and persists scan evidence alongside each target.
 
 Kaminowaku uses **NOSIX** for network I/O and **OpenSSL** for TLS and cryptographic support. Books use Lua syntax but execute through Kaminowaku's own C runtime; an external Lua interpreter is not required.
 
@@ -56,7 +56,7 @@ Kaminowaku uses **NOSIX** for network I/O and **OpenSSL** for TLS and cryptograp
 
 ### Supported platforms
 
-The 0.3.0 source package supports:
+The 0.3.1 source package supports:
 
 - Linux x86-64 / amd64
 - FreeBSD x86-64 / amd64
@@ -297,7 +297,7 @@ Use `help` at any time to see commands valid for the current context. Use `help 
 | `ping -4\|-6` | Perform ICMP discovery |
 | `resolve` | Resolve target URLs through DNS |
 | `scan ...` | Run TCP/UDP enumeration |
-| `book [name]` | List or execute Books |
+| `book [name] [--key value ...]` | List or execute Books with named arguments |
 | `tool ...` | Register/manage tools or enter tool context |
 | `ui` / `ui mode continuous\|frame` | Inspect or change terminal output mode (all contexts) |
 | `debug on\|off` | Toggle debug output |
@@ -621,6 +621,9 @@ Run a Book:
 ```text
 book ssh-kex
 book web-enum
+book ssh-kex --port 2222
+book web-enum --port 8443 --path /status --tls true
+book cve-2026-110264 --port 8080 --timeout 2000
 ```
 
 Current system Books:
@@ -629,6 +632,9 @@ Current system Books:
 | --- | --- |
 | `ssh-kex` | SSH transport and key-exchange enumeration |
 | `web-enum` | HTTPS/HTTP response enumeration |
+| `cve-2026-110264` | GitLab public release-exposure assessment |
+
+Books accept `--name value` and `--name=value`; quote values containing whitespace. Authors read supplied strings through Lua's global `args` table and validate their own options. See [Book invocation parameters](docs/BOOK_LANGUAGE_V1.md#book-invocation-parameters) for the full contract.
 
 At project level, a Book runs sequentially against every target. In target context, it runs only against the active target.
 

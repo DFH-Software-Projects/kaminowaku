@@ -1,6 +1,6 @@
 # Kaminowaku Book Language v1
 
-**Status:** Current Book authoring and runtime contract for Kaminowaku 0.3.0.
+**Status:** Current Book authoring and runtime contract for Kaminowaku 0.3.1.
 
 Kaminowaku Books are Lua programs executed by Kaminowaku's native C Book engine. Kaminowaku does **not** embed or link the upstream Lua runtime. The engine implements the supported Lua subset, standard-library surface, module resolver, sandbox, native bridge, evidence lifecycle, and persistence rules documented here.
 
@@ -13,6 +13,7 @@ This document describes only the **current supported interface and behavior**.
 - [Runtime architecture](#runtime-architecture)
 - [Source and installation layout](#source-and-installation-layout)
 - [Executable Books](#executable-books)
+- [Book invocation parameters](#book-invocation-parameters)
 - [Reusable modules](#reusable-modules)
 - [Trusted `kami.*` modules](#trusted-kami-modules)
 - [External tools and executable scripts](#external-tools-and-executable-scripts)
@@ -219,6 +220,63 @@ When `book <name>` is executed, Kaminowaku checks:
 2. the user Book directory.
 
 Therefore a user Book with the same name as an installed system Book does **not** override the system Book.
+
+## Book invocation parameters
+
+Starting with **0.3.1**, any executable Book accepts optional named parameters from its operator. This works in both project and target context; project execution applies the same input values separately to each target.
+
+```text
+book <book-name> [--name value | --name=value] ...
+
+book ssh-kex --port 2222
+book web-enum --port 8443 --path /status --tls true
+book cve-2026-110264 --port 8080 --tls false --timeout 2000
+book my-check --label "release candidate" --scan_mode deep
+```
+
+### Lua access
+
+The runtime injects a global **`args`** table. All supplied values are **strings**, including numerals and booleans; missing values are `nil`. Without parameters, the table is empty. There is no schema registry: the author chooses names and validates the values. No implicit port override is performed by Kaminowaku.
+
+```lua
+book {
+        name = "my-check"
+}
+
+local result = require("kami.result")
+
+local port = tonumber(args.port or "443")
+if not port or port < 1 or port > 65535 or port % 1 ~= 0 then
+        result.bail("Invalid --port: expected an integer from 1 to 65535")
+end
+
+local label = args.label or "default"
+result.emit("PORT", tostring(port))
+result.emit("LABEL", label)
+```
+
+The global is also visible to imported modules. For names containing hyphens, use bracket indexing (`args["custom-name"]`) rather than dot indexing. The Lua table is a mutable snapshot: changing it does not change native session arguments or other targets' copies.
+
+### Parsing contract
+
+- Both `--key value` and `--key=value` work. Single and double quoted values support embedded spaces; within quotes, backslashes can escape a matching quote or a backslash.
+- Each parameter requires a value (explicit `--verbose true` rather than a valueless flag). An empty value is accepted with `--label=""`. Use the equals form for values beginning with `--`, such as `--literal=--example`.
+- Names are case-sensitive, start with an ASCII letter or underscore, and then contain ASCII letters, digits, underscores or hyphens. Max name length: **63 bytes**.
+- Max value length: **511 bytes**. Max parameters per invocation: **16**.
+- Duplicate names, malformed arguments, excess lengths/counts, unexpected positional arguments and unclosed quotes fail **before creating a capture session**.
+- Unknown named parameters are deliberately accepted for third-party Book authors. A Book is responsible for the semantics of its own arguments.
+- The parser uses the sanitized original input; it does not run a shell or change global command tokenization. The existing sanitizer still restricts some special characters.
+- Script-level errors should use `result.bail()` as before. Invoked Books still retain their PCAP; unsuccessful Books preserve the previous durable `BOOKNAME.out` snapshot.
+
+### Shipped Book parameters
+
+| Book | Default port | Supported parameters |
+| --- | ---: | --- |
+| `ssh-kex` | 22 | `--port` |
+| `web-enum` | 443 | `--port`, `--path`, `--tls true|false` |
+| `cve-2026-110264` | 80 | `--port`, `--path`, `--tls true|false`, `--timeout` |
+
+`--timeout` is measured in milliseconds and cannot exceed the native hard or active profile maximum. The Book author's chosen defaults remain unchanged for no-argument runs.
 
 ## Reusable modules
 
@@ -1208,6 +1266,7 @@ Its PTY output is persisted as an external-tool artifact, not as Book output.
 | --- | --- |
 | `ssh-kex` | SSH transport identification and KEXINIT algorithm enumeration |
 | `web-enum` | HTTPS/HTTP response enumeration |
+| `cve-2026-110264` | GitLab public release-exposure assessment |
 
 ### Core `kami.*` modules
 

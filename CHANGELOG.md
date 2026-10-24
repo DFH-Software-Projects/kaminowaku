@@ -4,6 +4,17 @@ All notable user-visible changes to Kaminowaku are recorded here.
 
 Kaminowaku is currently pre-1.0. Entries describe released behavior rather than internal development checkpoints.
 
+## 0.3.1 — Beta
+
+### Added
+- Book named-argument parsing, quoting, bounds and duplicate validation.
+- Lua `args` tables for operator-configurable Book parameters.
+- Configurable ports for all shipped Books; HTTP Book path/TLS/timeout options.
+- Argument regression tests and beta-specific CI.
+
+### Preserved
+- Default no-argument behavior, project/target scope, Book capture and output persistence.
+
 ## 0.3.0 — Unreleased
 
 ### Added

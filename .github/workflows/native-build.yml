@@ -2,9 +2,9 @@ name: Kaminowaku native build
 
 on:
   push:
-    branches: [main]
+    branches: [main, beta-0.3.1]
   pull_request:
-    branches: [main]
+    branches: [main, beta-0.3.1]
   workflow_dispatch:
 
 permissions:
@@ -17,13 +17,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Verify 0.3.0 version references and release scripts
+      - name: Verify 0.3.1 version references and release scripts
         run: |
-          grep -Fx '#define VERSION "0.3.0"' src/data.h
-          grep -Fq '**Kaminowaku 0.3.0**' README.md
-          grep -Fq '## 0.3.0 — Unreleased' CHANGELOG.md
-          grep -Fq '0.3.0 (`main`, current source)' SECURITY.md
-          grep -Fq 'Kaminowaku 0.3.0.' docs/BOOK_LANGUAGE_V1.md
+          grep -Fx '#define VERSION "0.3.1"' src/data.h
+          grep -Fq '**Kaminowaku 0.3.1**' README.md
+          grep -Fq '## 0.3.1 — Beta' CHANGELOG.md
+          grep -Fq '0.3.1 (`beta-0.3.1`, development)' SECURITY.md
+          grep -Fq 'Kaminowaku 0.3.1.' docs/BOOK_LANGUAGE_V1.md
           sh -n release/package-native.sh
           sh -n uninstall.sh
       - name: Build from source against packaged dependencies
