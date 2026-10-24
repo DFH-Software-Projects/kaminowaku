@@ -194,10 +194,10 @@ def pcaps(target_dir, book):
 
 def verify_target(target_dir, ports):
     expected = {
-        "ssh-kex": {"PORT": str(ports["ssh"]), "BANNER": "SSH-2.0-KamiLab_031"},
-        "web-enum": {"PORT": str(ports["web"]), "SCHEME": "http", "STATUS": "200"},
+        "ssh-kex": {"PORT": str(ports["ssh_port"]), "BANNER": "SSH-2.0-KamiLab_031"},
+        "web-enum": {"PORT": str(ports["web_port"]), "SCHEME": "http", "STATUS": "200"},
         "cve-2026-110264": {
-            "PORT": str(ports["gitlab"]), "CVE": "CVE-2026-110264",
+            "PORT": str(ports["gitlab_port"]), "CVE": "CVE-2026-110264",
             "PRODUCT": "GITLAB", "FINGERPRINT": "GITLAB_RESPONSE_HEADER",
             "RELEASE-STATUS": "AFFECTED_RELEASE",
         },
