@@ -1,5 +1,6 @@
 // Copyright 2026 Jamison A. Drapeau
 #include "books.h"
+#include "book_args.h"
 #include "book_session.h"
 #include "book_exec.h"
 #include "book_output.h"
@@ -14,7 +15,7 @@
 #include <sys/stat.h>
 
 void books_print_usage(void) {
-        kui_add_line("< Usage: book [ " ANSI_COLOR_CYAN "<book-name>" ANSI_COLOR_RESET " ]");
+        kui_add_line("< Usage: book [ " ANSI_COLOR_CYAN "<book-name>" ANSI_COLOR_RESET " [--name value | --name=value] ... ]");
         return;
 }
 
@@ -329,7 +330,8 @@ static int books_run_one(
         const unsigned char * book_name,
         const unsigned char * book_path,
         FLOWER * target,
-        const char * target_directory
+        const char * target_directory,
+        const BOOK_ARGUMENTS * arguments
 ) {
         BOOK_SESSION session;
         book_exec_status_t execution_status;
@@ -357,6 +359,8 @@ static int books_run_one(
                 kui_add_line(NOTICE_INFO "No book-generated network action was permitted.");
                 return ABNORMAL;
         }
+
+        session.arguments = arguments;
 
         if (books_session_network_allowed(&session) != ISTRUE) {
                 books_session_set_termination(&session, BOOK_TERM_CAPTURE_SETUP_ERROR);
@@ -487,7 +491,8 @@ static int books_run_one(
 static void books_run_project(
         _carry_forward * _prog_data,
         const unsigned char * book_name,
-        const unsigned char * book_path
+        const unsigned char * book_path,
+        const BOOK_ARGUMENTS * arguments
 ) {
         FLOWER * current;
         uint64_t complete = 0;
@@ -546,7 +551,8 @@ static void books_run_project(
                                 book_name,
                                 book_path,
                                 &target,
-                                target_directory
+                                target_directory,
+                                arguments
                         ) == NORMAL
                 ) complete++;
                 else failed++;
@@ -566,16 +572,13 @@ static void books_run_project(
 void books_try_run(_carry_forward * _prog_data) {
         unsigned char book_path[MAX_PATH];
         book_location_t location;
+        BOOK_ARGUMENTS arguments;
+        char args_error[160];
 
         if (!_prog_data) return;
 
         if (_prog_data->cmd_tokens_count == 1 || !_prog_data->cmd_tokens[1]) {
                 books_list_available();
-                return;
-        }
-
-        if (_prog_data->cmd_tokens_count != 2) {
-                books_print_usage();
                 return;
         }
 
@@ -586,6 +589,22 @@ void books_try_run(_carry_forward * _prog_data) {
 
         if (book_name_validate(_prog_data->cmd_tokens[1]) != NORMAL) {
                 kui_add_line("< Invalid book name.");
+                return;
+        }
+
+        // @@ Validate every argument before starting any Book capture, including
+        // project-wide runs. Keep other command tokenization unchanged.
+        if (
+                book_args_parse(
+                        (const char*)_prog_data->cmd_input,
+                        (const char*)_prog_data->cmd_tokens[1],
+                        &arguments,
+                        args_error,
+                        sizeof(args_error)
+                ) != 0
+        ) {
+                kui_add_line(NOTICE_WARNING "%s", args_error);
+                books_print_usage();
                 return;
         }
 
@@ -615,7 +634,8 @@ void books_try_run(_carry_forward * _prog_data) {
                         _prog_data->cmd_tokens[1],
                         book_path,
                         _prog_data->active_project_active_target,
-                        _prog_data->active_project_active_target_directory
+                        _prog_data->active_project_active_target_directory,
+                        &arguments
                 );
                 return;
         }
@@ -623,7 +643,8 @@ void books_try_run(_carry_forward * _prog_data) {
         books_run_project(
                 _prog_data,
                 _prog_data->cmd_tokens[1],
-                book_path
+                book_path,
+                &arguments
         );
         return;
 }

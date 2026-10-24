@@ -3,6 +3,7 @@
 #define __BOOK_SESSION__H
 
 #include "book_core.h"
+#include "book_args.h"
 #include <nosix_datagram.h>
 #include <pthread.h>
 #include <stdatomic.h>
@@ -51,6 +52,8 @@ typedef struct BOOK_SESSION {
 
         _carry_forward *        prog_data;
         FLOWER *                target;
+        // Invocation-owned; lives until synchronous Book execution completes.
+        const BOOK_ARGUMENTS *  arguments;
 
         nosix_address_family_t  address_family;
         book_transport_t        transport;
