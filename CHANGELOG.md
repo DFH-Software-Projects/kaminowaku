@@ -11,6 +11,7 @@ Kaminowaku is currently pre-1.0. Entries describe released behavior rather than 
 - Lua `args` tables for operator-configurable Book parameters.
 - Configurable ports for all shipped Books; HTTP Book path/TLS/timeout options.
 - Argument regression tests and beta-specific CI.
+- Local SSH, HTTP, and synthetic GitLab lab fixtures, evidence verifier, and operator acceptance checklist.
 
 ### Preserved
 - Default no-argument behavior, project/target scope, Book capture and output persistence.

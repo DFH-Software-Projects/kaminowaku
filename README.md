@@ -655,7 +655,7 @@ Book locations:
 
 Book names may contain letters, numbers, hyphens, and underscores.
 
-For the supported Lua language, module model, runtime restrictions, and Book authoring interface, see [BOOK_LANGUAGE_V1.md](docs/BOOK_LANGUAGE_V1.md).
+For the supported Lua language, module model, runtime restrictions, and Book authoring interface, see [BOOK_LANGUAGE_V1.md](docs/BOOK_LANGUAGE_V1.md). For controlled 0.3.1 Book argument acceptance, see [Beta 0.3.1 lab](docs/BETA_031_LAB.md).
 
 ## External tools
 
