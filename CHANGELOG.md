@@ -2,7 +2,7 @@
 
 All notable user-visible changes to Kaminowaku are recorded here.
 
-Kaminowaku is currently pre-1.0. Entries describe released behavior rather than internal development checkpoints.
+Kaminowaku is currently pre-1.0. Entries document release baselines and development betas; an unreleased entry is not a tagged release.
 
 ## 0.3.1 — Beta
 
@@ -14,6 +14,11 @@ Kaminowaku is currently pre-1.0. Entries describe released behavior rather than 
 - Local SSH, HTTP, and synthetic GitLab lab fixtures, evidence verifier, and operator acceptance checklist.
 - Evidence verifier handles repeated Book fields (including SSH algorithm lists) and checks the requested TCP port in captured PCAP frames.
 - GitLab Book falls back to the active receive timeout rather than forcing a 4-second default.
+
+### Packaging
+- Audited 0.3.1 source, documentation, installer, and release metadata for consistent version references.
+- Brought current dependency documentation into alignment with packaged NOSIX ABI 1.5.0 and OpenSSL 3.5.9.
+- Added a release-version consistency gate to CI and aligned native packaging with the authoritative OpenSSL source lock.
 
 ### Preserved
 - Default no-argument behavior, project/target scope, Book capture and output persistence.

@@ -1,9 +1,11 @@
-# Vendored OpenSSL 3.5.8
+# Vendored OpenSSL 3.5.9
 
-Pinned source: https://github.com/openssl/openssl/releases/tag/openssl-3.5.8
+Pinned source: https://github.com/openssl/openssl/releases/tag/openssl-3.5.9
 
-Expected SHA-256 for `libs/openssl/source/openssl-3.5.8.tar.gz`:
-`a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2`
+Expected SHA-256 for `libs/openssl/source/openssl-3.5.9.tar.gz`:
+`603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a`
+
+`source/openssl.lock` is authoritative: its `VERSION` and `SOURCE_SHA256` must match the archive, this guide, and both platform build manifests.
 
 ## Native preparation (on developer/release machines only)
 
@@ -30,7 +32,7 @@ Platform payload:
 - `linux/include/openssl/` and `linux/lib/{libssl.a,libcrypto.a}`
 - `freebsd/include/openssl/` and `freebsd/lib/{libssl.a,libcrypto.a}`
 - `linux/BUILD-MANIFEST.txt` and `freebsd/BUILD-MANIFEST.txt`
-- `source/openssl-3.5.8.tar.gz`
+- `source/openssl-3.5.9.tar.gz`
 - `LICENSE.txt` — OpenSSL Apache-2.0 license
 
 Generated configuration.h is platform-specific: do not reuse the Linux

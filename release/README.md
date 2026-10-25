@@ -12,7 +12,7 @@ sudo ./install.sh install BUILD=release --offline
 
 An offline deployment includes Kaminowaku source, its Makefile, a local
 Clang/Make toolchain on each target, the licensed platform-specific NOSIX ABI,
-and pinned OpenSSL 3.5.8 source, generated headers and static libraries with
+and pinned OpenSSL 3.5.9 source, generated headers and static libraries with
 their integrity manifests under `libs/`. The installer validates the bundled
 dependencies, discards stale `.STAGE/` outputs, compiles the current Kaminowaku
 source and installs that exact newly built executable.
@@ -46,6 +46,8 @@ source, but links against system-managed OpenSSL 3 shared libraries. This mode
 may install missing prerequisites via apt on supported Linux systems or pkg
 on FreeBSD; `check` and `all` never install packages. NOSIX remains a
 private, licensed shared library installed alongside Kaminowaku.
+
+Kaminowaku **0.3.1** offline release dependencies are NOSIX ABI **1.5.0** and OpenSSL **3.5.9**. Before packaging or merging, run `sh scripts/check-release-versions.sh` to catch mismatched version metadata.
 
 ## Release verification
 

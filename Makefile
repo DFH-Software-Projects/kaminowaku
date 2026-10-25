@@ -42,7 +42,7 @@ STAGE_PRIVATE_LIB ?= $(STAGE_ROOT)/lib/kaminowaku
 OPENSSL_ROOT ?= libs/openssl
 OPENSSL_INCLUDEDIR ?= $(OPENSSL_ROOT)/$(PLATFORM_TAG)/include
 OPENSSL_LIBDIR ?= $(OPENSSL_ROOT)/$(PLATFORM_TAG)/lib
-# offline: bundled OpenSSL 3.5.8 static archives; online: system-managed
+# offline: bundled pinned OpenSSL static archives; online: system-managed
 # OpenSSL 3 shared libraries. Online requires pkg-config/pkgconf at build time.
 OPENSSL_MODE ?= offline
 OPENSSL_PKG_CONFIG ?= pkg-config
@@ -77,10 +77,10 @@ runtime-check:
 	@set -eu; \
 	[ -f "$(NOSIX_INCLUDEDIR)/nosix.h" ] || { echo "ERROR: Missing packaged NOSIX headers."; exit 1; }; \
 	[ -f "$(NOSIX_ABI_ENV)" ] || { echo "ERROR: Missing NOSIX ABI metadata."; exit 1; }; \
-	grep -Eq '^#define[[:space:]]+NOSIX_ABI_VERSION_MAJOR[[:space:]]+1U([[:space:]]|$$)' "$(NOSIX_INCLUDEDIR)/nosix.h" || { echo "ERROR: BetaV3 requires NOSIX ABI major 1."; exit 1; }; \
-	grep -Eq '^#define[[:space:]]+NOSIX_ABI_VERSION_MINOR[[:space:]]+5U([[:space:]]|$$)' "$(NOSIX_INCLUDEDIR)/nosix.h" || { echo "ERROR: BetaV3 requires NOSIX ABI 1.5 headers; rebuild and package NOSIX/BetaV3."; exit 1; }; \
+	grep -Eq '^#define[[:space:]]+NOSIX_ABI_VERSION_MAJOR[[:space:]]+1U([[:space:]]|$$)' "$(NOSIX_INCLUDEDIR)/nosix.h" || { echo "ERROR: Kaminowaku requires NOSIX ABI major 1."; exit 1; }; \
+	grep -Eq '^#define[[:space:]]+NOSIX_ABI_VERSION_MINOR[[:space:]]+5U([[:space:]]|$$)' "$(NOSIX_INCLUDEDIR)/nosix.h" || { echo "ERROR: Kaminowaku requires NOSIX ABI 1.5 headers; package compatible NOSIX binaries."; exit 1; }; \
 	. "./$(NOSIX_ABI_ENV)"; \
-	[ "$$REAL_NAME" = "libnosix.so.1.5.0" ] || { echo "ERROR: BetaV3 requires a native NOSIX 1.5.0 library; packaged runtime is $$REAL_NAME."; exit 1; }; \
+	[ "$$REAL_NAME" = "libnosix.so.1.5.0" ] || { echo "ERROR: Kaminowaku requires native NOSIX ABI 1.5.0; packaged runtime is $$REAL_NAME."; exit 1; }; \
 	case "$(OPENSSL_MODE)" in \
 		offline) \
 			[ -f "$(OPENSSL_INCLUDEDIR)/openssl/ssl.h" ] || { echo "ERROR: Missing bundled OpenSSL headers for $(PLATFORM_TAG)."; exit 1; }; \
