@@ -17,15 +17,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Verify 0.3.1 version references and release scripts
-        run: |
-          grep -Fx '#define VERSION "0.3.1"' src/data.h
-          grep -Fq '**Kaminowaku 0.3.1**' README.md
-          grep -Fq '## 0.3.1 — Beta' CHANGELOG.md
-          grep -Fq '0.3.1 (`beta-0.3.1`, development)' SECURITY.md
-          grep -Fq 'Kaminowaku 0.3.1.' docs/BOOK_LANGUAGE_V1.md
-          sh -n release/package-native.sh
-          sh -n uninstall.sh
+      - name: Verify version and dependency metadata consistency
+        run: sh scripts/check-release-versions.sh
       - name: Build from source against packaged dependencies
         run: make OPENSSL_MODE=offline CFLAGS='-std=c11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -pthread' LDFLAGS='-pthread'
       - name: Verify staged executable

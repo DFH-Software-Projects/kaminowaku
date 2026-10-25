@@ -1,5 +1,7 @@
 # BetaV3 · Phases 4–5: NOSIX Layer-3 Integration and Target Pruning
 
+> **Historical BetaV3 development record (archived).** This describes an earlier ABI staging phase, not the release procedure for Kaminowaku 0.3.1. For the current dependency package and release testing, see [Native release packaging](../release/README.md) and [Beta 0.3.1 live acceptance](BETA_031_LAB.md).
+
 Scope: Kaminowaku/BetaV3. NOSIX/BetaV3 must be rebuilt and packaged separately before executable integration tests. Phase 5 extends the existing safe `targets del -n` policy; it does not redesign target storage or infer network failures from timeouts.
 
 ## NOSIX ABI contract

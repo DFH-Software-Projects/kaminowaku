@@ -1,5 +1,7 @@
 # BetaV3 — Phase 6 release-validation handoff
 
+> **Historical BetaV3 development record (archived).** This describes an earlier ABI staging phase, not the release procedure for Kaminowaku 0.3.1. For the current dependency package and release testing, see [Native release packaging](../release/README.md) and [Beta 0.3.1 live acceptance](BETA_031_LAB.md).
+
 **State:** Integration and source checks finalized. **Native runtime/integration testing is intentionally pending operator execution.** The owner will manually merge the tested branches to `main`; this phase does not merge, tag, publish a release, or overwrite packaged proprietary binaries with untested artifacts.
 
 ## Branch dependencies

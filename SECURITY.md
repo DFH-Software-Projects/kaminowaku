@@ -10,8 +10,8 @@ Kaminowaku is currently pre-1.0.
 
 | Version | Security support |
 | --- | --- |
-| 0.3.1 (`beta-0.3.1`, development) | Security reports accepted during beta testing |
-| 0.3.0 (`main`) | Security reports accepted during development |
+| 0.3.1 (current beta; `beta-0.3.1`) | Security reports accepted during beta testing |
+| 0.3.0 (prior development baseline) | Security reports accepted during development |
 | Latest tagged release | Supported |
 | Older development snapshots | Not actively supported |
 

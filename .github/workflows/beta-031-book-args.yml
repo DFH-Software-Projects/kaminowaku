@@ -25,6 +25,8 @@ jobs:
           /tmp/kami-book-args-test
       - name: Validate controlled loopback fixture and evidence verifier
         run: python3 -m unittest discover -s tests -p 'test_beta031_book_lab.py' -v
+      - name: Verify release version and native dependency pins
+        run: sh scripts/check-release-versions.sh
       - name: Prepare native syntax-check dependencies
         run: sudo apt-get update -qq && sudo apt-get install -y -qq libssl-dev
       - name: Syntax-check the complete Kaminowaku C source tree

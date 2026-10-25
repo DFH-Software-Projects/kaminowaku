@@ -1,5 +1,7 @@
 # BetaV3: Port display policy
 
+> **Historical BetaV3 development record (archived).** This describes an earlier ABI staging phase, not the release procedure for Kaminowaku 0.3.1. For the current dependency package and release testing, see [Native release packaging](../release/README.md) and [Beta 0.3.1 live acceptance](BETA_031_LAB.md).
+
 The displayed port table is a **filtered view** of the existing `.ports` history, not a change to the persisted scan results.
 
 - Keep current `OPEN` ports (TCP and UDP), even if banner enrichment returned no application bytes.
