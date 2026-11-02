@@ -217,7 +217,7 @@ The TUI expects a terminal at least 24 rows tall.
 
 ## Terminal UI and display modes
 
-The `beta-v2` TUI has two operator-selectable display modes. **Continuous** is the default; it preserves scrollback across commands. **Frame** presents the current command frame rather than continuously accumulating the entire prior view. The `ui` command works from project, target and tool contexts:
+The Kaminowaku 0.3.1 TUI has two operator-selectable display modes. **Continuous** is the default; it preserves scrollback across commands. **Frame** presents the current command frame rather than continuously accumulating the entire prior view. The `ui` command works from project, target and tool contexts:
 
 ```text
 ui
@@ -227,7 +227,7 @@ ui mode frame
 
 The terminal input decoder supports fragmented escape sequences, navigation/editing keys, mouse-wheel scrolling and bracketed paste. KUI owns prompt painting and screen updates through an ordered event queue and differential screen renderer. Interactive external tools use a dedicated PTY handoff so their terminal state is restored when control returns to Kaminowaku. `debug on/off` controls debugging; it is not the display-mode switch.
 
-For implementation details see the [TUI architecture and control flow](docs/LINK_GRAPH.md#ui-and-rendering-path). Regression tests and manual acceptance instructions are maintained on the [`beta-v2` development branch](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests); they are not included in the `main` source tree. Real-terminal acceptance testing remains necessary.
+For implementation details see the [TUI architecture and control flow](docs/LINK_GRAPH.md#ui-and-rendering-path). Kaminowaku 0.3.1 carries its own Book/L3 regression tests in the source tree and runs them in CI. Interactive terminal acceptance remains necessary; historical TUI development checks remain available on the [`beta-v2` branch](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests).
 
 ## Workflow
 
@@ -667,7 +667,7 @@ Book locations:
 
 Book names may contain letters, numbers, hyphens, and underscores.
 
-For the supported Lua language, module model, runtime restrictions, and Book authoring interface, see [BOOK_LANGUAGE_V1.md](docs/BOOK_LANGUAGE_V1.md). For controlled 0.3.1 Book argument acceptance, see [Beta 0.3.1 lab](docs/BETA_031_LAB.md).
+For the supported Lua language, module model, runtime restrictions, and Book authoring interface, see [BOOK_LANGUAGE_V1.md](docs/BOOK_LANGUAGE_V1.md). For authorized live Book, packet-capture and storage acceptance, see the [0.3.1 release checklist](docs/RELEASE_ACCEPTANCE.md).
 
 ## External tools
 
@@ -950,8 +950,9 @@ The build uses a generated `.STAGE/` tree for header projection, object files, m
 
 ## Developer documentation
 
-- [Source link graph](docs/LINK_GRAPH.md) — source ownership, beta-v2 TUI event/renderer control flow, compile/link relationships, external dependency boundaries, and change-impact mapping.
-- [TUI regression suite (`beta-v2`)](https://github.com/DFH-Software-Projects/kaminowaku/blob/beta-v2/tests/README.md) — input, event, compositor, wrap-index, shutdown and PTY tests, benchmark runner and interactive acceptance checklist.
+- [Source link graph](docs/LINK_GRAPH.md) — 0.3.1 source ownership, Book argument/help dispatch, TUI event/renderer control flow, compile/link relationships and change-impact mapping.
+- [0.3.1 CI workflows](.github/workflows/) — Book argument/help, Lua integration, L3/port-policy contracts, and Linux/FreeBSD native builds.
+- [Release acceptance checklist](docs/RELEASE_ACCEPTANCE.md) — manual authorized network, PCAP, Book help, persistence and failure-path checks. Historical [TUI development regressions](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests) remain reference material.
 - [Book language reference](docs/BOOK_LANGUAGE_V1.md) — supported Lua syntax, Book/module authoring contract, runtime boundaries, and guidance for Books versus external tools/scripts.
 - [Hard timeout guarantees](docs/HARD_TIMEOUTS.md) — monotonic receive deadlines, Book execution limits, regression checks, and native NOSIX rebuild requirements.
 

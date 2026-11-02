@@ -10,6 +10,7 @@ Kaminowaku is currently pre-1.0. Entries document release baselines and developm
 - Book named-argument parsing, quoting, bounds and duplicate validation.
 - Lua `args` tables for operator-configurable Book parameters.
 - Universal capture-free `book --help` and `book <name> --help` menus, with declarative, optional per-Book help metadata and default help for user Books.
+- Final Book language documentation, refreshed 0.3.1 source/link graph and a permanent manual acceptance checklist.
 - Configurable ports for all shipped Books; HTTP Book path/TLS/timeout options.
 - Argument regression tests and beta-specific CI.
 - Local SSH, HTTP, and synthetic GitLab lab fixtures, evidence verifier, and operator acceptance checklist.
@@ -20,6 +21,7 @@ Kaminowaku is currently pre-1.0. Entries document release baselines and developm
 - Audited 0.3.1 source, documentation, installer, and release metadata for consistent version references.
 - Brought current dependency documentation into alignment with packaged NOSIX ABI 1.5.0 and OpenSSL 3.5.9.
 - Added a release-version consistency gate to CI and aligned native packaging with the authoritative OpenSSL source lock.
+- Removed temporary Python Book lab and obsolete BetaV3 staging scripts/workflow; retained reusable C and Lua regression tests under CI.
 
 ### Preserved
 - Default no-argument behavior, project/target scope, Book capture and output persistence.
