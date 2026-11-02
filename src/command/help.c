@@ -370,6 +370,9 @@ void help(_carry_forward * _prog_data) {
                         kui_add_line(NOTICE_INFO "Lua Books read operator parameters as strings from the global args table.");
                         kui_add_line(NOTICE_INFO "Examples: book ssh-kex --port 2222; book web-enum --port 8443 --path /status");
                         kui_add_line(NOTICE_INFO "Up to 16 named parameters; duplicate keys and missing values are rejected before capture.");
+                        kui_add_line(NOTICE_INFO "Use book --help to see standard options and list Books.");
+                        kui_add_line(NOTICE_INFO "Use book <name> --help for Book-specific options, without requiring a project.");
+                        kui_add_line(NOTICE_INFO "--help is reserved and valueless; it cannot be combined with scan arguments.");
                         kui_add_line(NOTICE_INFO "Alias: " ANSI_COLOR_MAGENTA "b" ANSI_COLOR_RESET);
                 } else if (strcmp((char*)_prog_data->cmd_tokens[1], "") == MATCH) { // TEMPLATE
 

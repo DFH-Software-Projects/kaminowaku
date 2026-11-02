@@ -1,5 +1,6 @@
 // Copyright 2026 Jamison A. Drapeau
 #include "books.h"
+#include "book_help.h"
 #include "book_args.h"
 #include "book_session.h"
 #include "book_exec.h"
@@ -16,7 +17,40 @@
 
 void books_print_usage(void) {
         kui_add_line("< Usage: book [ " ANSI_COLOR_CYAN "<book-name>" ANSI_COLOR_RESET " [--name value | --name=value] ... ]");
+        kui_add_line("    book --help                        Show Book command help and available Books.");
+        kui_add_line("    book <book-name> --help            Show a Book's own options without executing it.");
+        kui_add_line(NOTICE_INFO "The --help switch never starts a scan or creates a PCAP.");
         return;
+}
+
+static void books_print_script_help(
+        const unsigned char * name,
+        const unsigned char * source
+) {
+        BOOK_HELP details;
+        int metadata_status = book_help_read(source, (const char*)name, &details);
+
+        kui_add_line("< Book: " ANSI_COLOR_CYAN "%s" ANSI_COLOR_RESET, name);
+        if (metadata_status == 0 && details.description[0]) {
+                kui_add_line("    %s", details.description);
+        }
+        kui_add_line("    Usage: book %s [--name value | --name=value] ...", name);
+        kui_add_line("    Options:");
+        kui_add_line("      --help              Show this menu without running the Book.");
+        if (metadata_status == 0 && details.option_count > 0) {
+                for (size_t i = 0; i < details.option_count; i++) {
+                        kui_add_line(
+                                "      --%-17s %s",
+                                details.options[i].name,
+                                details.options[i].description
+                        );
+                }
+        } else {
+                kui_add_line(NOTICE_INFO "No Book-specific options documented.");
+        }
+        kui_add_line(NOTICE_INFO "Invocation works in project and target context.");
+        kui_add_line(NOTICE_INFO "All argument values reach Lua as strings in args.");
+        kui_add_line(NOTICE_INFO "Help is available without loading a project; no network activity or evidence files.");
 }
 
 static int books_regular_file(const unsigned char * book_path) {
@@ -574,6 +608,7 @@ void books_try_run(_carry_forward * _prog_data) {
         book_location_t location;
         BOOK_ARGUMENTS arguments;
         char args_error[160];
+        int parsed;
 
         if (!_prog_data) return;
 
@@ -582,8 +617,15 @@ void books_try_run(_carry_forward * _prog_data) {
                 return;
         }
 
-        if (_prog_data->active_project[0] == 0x00) {
-                kui_add_line("< This command requires an active project to be loaded.");
+        // @@ Help requires neither an active project nor an active capture
+        // session; no Lua source is executed in either path.
+        if (strcmp((const char*)_prog_data->cmd_tokens[1], "--help") == 0) {
+                if (_prog_data->cmd_tokens_count != 2) {
+                        kui_add_line(NOTICE_WARNING "book --help does not take additional arguments.");
+                        return;
+                }
+                books_print_usage();
+                books_list_available();
                 return;
         }
 
@@ -592,19 +634,36 @@ void books_try_run(_carry_forward * _prog_data) {
                 return;
         }
 
-        // @@ Validate every argument before starting any Book capture, including
-        // project-wide runs. Keep other command tokenization unchanged.
-        if (
-                book_args_parse(
-                        (const char*)_prog_data->cmd_input,
-                        (const char*)_prog_data->cmd_tokens[1],
-                        &arguments,
-                        args_error,
-                        sizeof(args_error)
-                ) != 0
-        ) {
+        // @@ Validate --help and all ordinary arguments before capture.
+        parsed = book_args_parse(
+                (const char*)_prog_data->cmd_input,
+                (const char*)_prog_data->cmd_tokens[1],
+                &arguments,
+                args_error,
+                sizeof(args_error)
+        );
+        if (parsed < 0) {
                 kui_add_line(NOTICE_WARNING "%s", args_error);
                 books_print_usage();
+                return;
+        }
+
+        if (parsed == BOOK_ARGS_HELP) {
+                memset(book_path, 0x00, sizeof(book_path));
+                location = books_resolve(
+                        _prog_data->cmd_tokens[1], book_path, sizeof(book_path)
+                );
+                if (location == BOOK_NOT_FOUND) {
+                        kui_add_line("< Book " ANSI_COLOR_CYAN "%s" ANSI_COLOR_RESET " not found.",
+                                _prog_data->cmd_tokens[1]);
+                        return;
+                }
+                books_print_script_help(_prog_data->cmd_tokens[1], book_path);
+                return;
+        }
+
+        if (_prog_data->active_project[0] == 0x00) {
+                kui_add_line("< This command requires an active project to be loaded.");
                 return;
         }
 
