@@ -17,5 +17,4 @@ library directory. Staging recreates SONAME and linker symlinks,
 including after Windows-hosted release assembly. Do not substitute
 renamed older ABI 1.4 builds or publish NOSIX private source.
 
-Historical BetaV3 staging notes are archived under `docs/BetaV3-*`
-and do not describe the current 0.3.1 dependency package.
+Historical BetaV3 staging notes are archived in the repository's top-level `docs/` directory and do not describe the current 0.3.1 dependency package.

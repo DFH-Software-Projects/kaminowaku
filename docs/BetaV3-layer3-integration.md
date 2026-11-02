@@ -1,6 +1,6 @@
 # BetaV3 · Phases 4–5: NOSIX Layer-3 Integration and Target Pruning
 
-> **Historical BetaV3 development record (archived).** This describes an earlier ABI staging phase, not the release procedure for Kaminowaku 0.3.1. For the current dependency package and release testing, see [Native release packaging](../release/README.md) and [Beta 0.3.1 live acceptance](BETA_031_LAB.md).
+> **Historical BetaV3 development record (archived).** This describes an earlier ABI staging phase, not the release procedure for Kaminowaku 0.3.1. Commands invoking `scripts/betav3-preflight.sh` below are historical only; that temporary script is no longer shipped. For the current dependency package and release testing, see [Native release packaging](../release/README.md) and [0.3.1 release acceptance](RELEASE_ACCEPTANCE.md).
 
 Scope: Kaminowaku/BetaV3. NOSIX/BetaV3 must be rebuilt and packaged separately before executable integration tests. Phase 5 extends the existing safe `targets del -n` policy; it does not redesign target storage or infer network failures from timeouts.
 
@@ -51,6 +51,6 @@ The command does **not** delete targets when the scan was never run, when a pack
 
 Per-port TCP/UDP failures are currently persisted as generic `NETWORK_ERROR`, not as an explicit NOSIX L3 status. **TCP/UDP-only failed scans are therefore not sufficient for `-n`**; such targets are kept, rather than inferring an L3 failure from an ambiguous per-port result.
 
-No storage schema, target size, command syntax, or on-disk scan version changes were needed; Phase 4 already reserved bit 6 and persists it for ICMPv4. The `tests/betav3_target_pruning.c` regression checks single-stack, dual-stack, observed-response, stale-version, timeout and conflicting-bit cases. The BetaV3 CI workflow executes the test without network privileges.
+No storage schema, target size, command syntax, or on-disk scan version changes were needed; Phase 4 already reserved bit 6 and persists it for ICMPv4. The current `tests/target_pruning.c` regression checks single-stack, dual-stack, observed-response, stale-version, timeout and conflicting-bit cases. The BetaV3 CI workflow executes the test without network privileges.
 
 **Operational caution:** A neighbor-lookup failure or attempted L3 send failure does not necessarily prove a target is permanently unreachable. `targets del -n` remains an explicit operator-requested cleanup action rather than an automatic reachability verdict.

@@ -1,6 +1,6 @@
 # BetaV3: Port display policy
 
-> **Historical BetaV3 development record (archived).** This describes an earlier ABI staging phase, not the release procedure for Kaminowaku 0.3.1. For the current dependency package and release testing, see [Native release packaging](../release/README.md) and [Beta 0.3.1 live acceptance](BETA_031_LAB.md).
+> **Historical BetaV3 development record (archived).** This describes an earlier ABI staging phase, not the release procedure for Kaminowaku 0.3.1. Commands invoking `scripts/betav3-preflight.sh` below are historical only; that temporary script is no longer shipped. For the current dependency package and release testing, see [Native release packaging](../release/README.md) and [0.3.1 release acceptance](RELEASE_ACCEPTANCE.md).
 
 The displayed port table is a **filtered view** of the existing `.ports` history, not a change to the persisted scan results.
 
@@ -14,4 +14,4 @@ The displayed port table is a **filtered view** of the existing `.ports` history
 
 TCP SYN scanning observes the `SYN+ACK` response, **not necessarily completion of the three-way handshake**. Successful application/banner connects are attempted in the enrichment stage for ports that were found open by the scan. No new TCP handshake probes were added.
 
-The `tests/betav3_port_display.c` policy tests and the BetaV3 compiler checks guard this behavior. No target file schema or `.ports` storage changes are required.
+The current `tests/port_display.c` policy test guards this behavior in 0.3.1 CI. No target file schema or `.ports` storage changes are required.

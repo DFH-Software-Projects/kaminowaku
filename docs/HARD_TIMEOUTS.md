@@ -38,21 +38,20 @@ Native NOSIX uses nonblocking receive calls following bounded readiness waits
 on Linux packet sockets, FreeBSD BPF and local IPv4, as well as nonblocking
 TCP/UDP streams. Repeated `EINTR` or `EAGAIN` cannot refresh a deadline.
 
-## Deployment dependency
+## Release 0.3.1 dependency
 
-**Build NOSIX before packaging Kaminowaku.** The NOSIX
-`fix/hard-receive-deadlines` branch changes implementation without changing
-the public ABI. Kaminowaku's currently committed platform binaries are
-separately packaged ABI snapshots; updating Kaminowaku source alone does not
-replace those binaries. Build and package the updated native NOSIX shared
-library for **Linux and FreeBSD** as part of the deployment workflow.
+Kaminowaku 0.3.1 packages NOSIX ABI **1.5.0** for Linux/FreeBSD amd64,
+plus pinned offline OpenSSL **3.5.9**. Run `sh scripts/check-release-versions.sh`
+to verify the package metadata. Updating Kaminowaku source alone does not
+rebuild NOSIX's separately bundled native shared libraries. Repackage and
+validate both native ABIs when the NOSIX implementation changes.
 
 ## Regression checks
 
 - NOSIX: `make test` includes a real-time signal storm that repeatedly
   interrupts a 120ms poll, verifying that the deadline still expires.
-- Kaminowaku: `sh tests/run_kwire_deadline.sh` on the [`beta-v2` development branch](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests) verifies expiration, the native ceiling and that repeated checks do not reset the timer.
-- `main` uses native Linux/FreeBSD build verification; regression sources and workflows remain on `beta-v2`. Validate actual raw capture and network behavior on both target platforms before merging or shipping updated shared libraries.
+- Kaminowaku 0.3.1: the [Book/L3 C regression CI](../.github/workflows/beta-031-book-args.yml) tests parameter/help behavior, Lua integration, L3/PCAP compatibility, target pruning and port-display policy. [Native build CI](../.github/workflows/native-build.yml) covers both supported OSes.
+- Historical deadline-specific regression cases live on the [`beta-v2` branch](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests), **not in the 0.3.1 release tree**. Operator acceptance of actual timeouts and raw captures on Linux/FreeBSD is still necessary; use the [release checklist](RELEASE_ACCEPTANCE.md).
 
 These deadlines bound cooperative userspace and normal native socket/BPF
 operations. No in-process timeout can guarantee recovery from an uninterruptible

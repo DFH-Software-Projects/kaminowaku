@@ -47,7 +47,7 @@ may install missing prerequisites via apt on supported Linux systems or pkg
 on FreeBSD; `check` and `all` never install packages. NOSIX remains a
 private, licensed shared library installed alongside Kaminowaku.
 
-Kaminowaku **0.3.1** offline release dependencies are NOSIX ABI **1.5.0** and OpenSSL **3.5.9**. Before packaging or merging, run `sh scripts/check-release-versions.sh` to catch mismatched version metadata.
+Kaminowaku **0.3.1** offline release dependencies are NOSIX ABI **1.5.0** and OpenSSL **3.5.9**. Before packaging or merging, run `sh scripts/check-release-versions.sh` to catch mismatched version metadata. On disk-constrained VMs, check `df -h` before extracting the full source and separate testing copy; see [0.3.1 release acceptance](../docs/RELEASE_ACCEPTANCE.md).
 
 ## Release verification
 

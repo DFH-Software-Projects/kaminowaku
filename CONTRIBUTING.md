@@ -88,7 +88,7 @@ https://github.com/DFH-Software-Projects/kaminowaku
 
 It is also useful to link directly to the authoritative Book language reference:
 
-https://github.com/DFH-Software-Projects/kaminowaku/blob/main/docs/BOOK_LANGUAGE_V1.md
+https://github.com/DFH-Software-Projects/kaminowaku/blob/beta-0.3.1/docs/BOOK_LANGUAGE_V1.md
 
 ## Licensing
 
@@ -108,6 +108,7 @@ An executable Book should:
 
 - use the `.lua` extension;
 - declare exactly one matching `book { name = "..." }`;
+- document supported flags in optional literal `description` and `options` metadata so the universal `book <name> --help` menu is useful;
 - use supported Lua syntax and standard-library functions;
 - use public `kami.*` modules rather than private `_kami`;
 - keep network reads, parsing, and loops bounded;
@@ -115,6 +116,7 @@ An executable Book should:
 - use `result.emit()` for durable findings;
 - use `result.bail()` when valid current-state results cannot be produced;
 - leave Kaminowaku `.out` and PCAP persistence to the runtime;
+- leave the reserved `--help` switch to the built-in dispatcher rather than implementing it in Lua;
 - rely on `kami.send` and `kami.recv` for the standard TX/RX notices rather than duplicating them.
 
 Reusable modules should:
