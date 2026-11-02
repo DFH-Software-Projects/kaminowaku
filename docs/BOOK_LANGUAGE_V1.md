@@ -105,7 +105,12 @@ Do **not** reimplement a general OS-tool runtime inside the Book language merely
 
 ```mermaid
 flowchart TD
-    BOOK["Executable Book<br/>books/*.lua"] --> MODULE["Reusable protocol module<br/>modules.* / user.*"]
+    CLI["book <name> [arguments]"] --> ARGS["book_args.c<br/>bounded parameter parser"]
+    ARGS --> BOOK["Executable Book<br/>books/*.lua"]
+    CLI --> HELP["book <name> --help"]
+    HELP --> AST["book_help.c<br/>static Lua AST metadata, no execution"]
+    AST --> MENU["Generic help + declared options"]
+    BOOK --> MODULE["Reusable protocol module<br/>modules.* / user.*"]
     BOOK --> KAMI["Public kami.* modules"]
     MODULE --> KAMI
 
@@ -260,6 +265,9 @@ The global is also visible to imported modules. For names containing hyphens, us
 
 ### Parsing contract
 
+Argument parsing is performed by `src/books/book_args.c` before any session is created. For the `--help` fast path, `src/books/book_help.c` reads the existing lexer/parser AST only; it never evaluates user Lua, initializes a Book session or changes a target. Those two paths are separate from the runtime's native `args` table injection.
+
+
 - Both `--key value` and `--key=value` work. Single and double quoted values support embedded spaces; within quotes, backslashes can escape a matching quote or a backslash.
 - Each ordinary parameter requires a value (explicit `--verbose true` rather than a valueless flag); `--help` is the reserved, valueless exception. An empty value is accepted with `--label=""`. Use the equals form for values beginning with `--`, such as `--literal=--example`.
 - Names are case-sensitive, start with an ASCII letter or underscore, and then contain ASCII letters, digits, underscores or hyphens. Max name length: **63 bytes**.
@@ -316,11 +324,13 @@ book {
 
 Kaminowaku reads this metadata using **static Lua AST inspection**. It does not evaluate the declaration or execute the remainder of the source to display help. If metadata is absent or cannot be statically read, the **generic help menu still displays**. Help metadata must use literal strings and constant table entries: no computed values, expressions, or runtime variables. Keep descriptions short and single-line; printable ASCII, max **255 bytes per description**, **16 options**, **63-byte names**. The Book name must match the source file as usual.
 
-Help metadata is informational, not a runtime argument schema or input filter: unknown named arguments remain accepted by the core parser and interpreted by the Book author. The existing `book { name = "..." }` form remains valid, with no migration required.
+Help metadata is informational, not a runtime argument schema or input filter: unknown named arguments remain accepted by the core parser and interpreted by the Book author. The existing `book { name = "..." }` form remains valid, with no migration required. Help descriptions must remain synchronized with the Book's actual defaults and error checks; metadata is never evaluated to discover those settings.
 
 ### Shipped help menus
 
-The built-in `ssh-kex` menu describes `--port` (default **22**); `web-enum` describes `--port` (**443**), `--path` (**/**), and `--tls` (**true**); `cve-2026-110264` describes `--port` (**80**), `--path` (**/users/sign_in**), `--tls` (**false**), and `--timeout` (active profile/native default).
+The built-in `ssh-kex` menu describes `--port` (default **22**); `web-enum` describes `--port` (**443**), `--path` (**/**), and `--tls` (**true**); `cve-2026-110264` describes `--port` (**80**), `--path` (**/users/sign_in**), `--tls` (**false**), and `--timeout` (active profile/native default). Each receives `--help` automatically. The GitLab assessment is an unauthenticated HTTP fingerprint, **not exploitation**.
+
+Permanent C regression tests `tests/book_args_test.c` and `tests/book_args_runtime_test.c` validate argument parsing, Lua argument transfer and non-executing help metadata; test Lua fixtures are under `tests/fixtures/`. These tests run in CI. Follow [the 0.3.1 release acceptance guide](RELEASE_ACCEPTANCE.md) for actual target network/PCAP and persistence checks; temporary Python fixture scripts are not shipped.
 
 ## Reusable modules
 
@@ -1144,6 +1154,8 @@ A stronger native failure state is not overwritten merely because Lua reaches th
 ### Books should
 
 - declare exactly one matching `book { name = ... }`;
+- document named parameters and their defaults with optional literal `description` and `options` fields in the declaration, so `--help` is useful;
+- reserve `--help` for the core dispatcher; do not reimplement it inside Lua or treat `args.help` as a Book option;
 - perform one focused enumeration job;
 - use `modules.*` or `user.*` for reusable logic;
 - use public `kami.*` primitives for transport, TLS, bytes, and results;
@@ -1340,6 +1352,13 @@ When changing language syntax or runtime semantics, inspect:
 - [`src/books/book_parser.c`](../src/books/book_parser.c)
 - [`src/books/book_runtime.c`](../src/books/book_runtime.c)
 - [`src/books/book_stdlib.c`](../src/books/book_stdlib.c)
+
+When changing named parameters or Book help, inspect:
+
+- [`src/books/book_args.c`](../src/books/book_args.c) and [`src/books/book_args.h`](../src/books/book_args.h)
+- [`src/books/book_help.c`](../src/books/book_help.c) and [`src/books/book_help.h`](../src/books/book_help.h)
+- [`src/books/books.c`](../src/books/books.c), [`src/books/book_runtime.c`](../src/books/book_runtime.c), and [`src/command/help.c`](../src/command/help.c)
+- shipped [system Book declarations](../books/), `tests/book_args_test.c`, `tests/book_args_runtime_test.c`, and the [release checklist](RELEASE_ACCEPTANCE.md)
 
 When changing the public Lua API, inspect:
 
