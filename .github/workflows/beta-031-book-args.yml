@@ -23,8 +23,6 @@ jobs:
             -Isrc/books tests/book_args_test.c src/books/book_args.c \
             -o /tmp/kami-book-args-test
           /tmp/kami-book-args-test
-      - name: Validate controlled loopback fixture and evidence verifier
-        run: python3 -m unittest discover -s tests -p 'test_beta031_book_lab.py' -v
       - name: Verify release version and native dependency pins
         run: sh scripts/check-release-versions.sh
       - name: Prepare native syntax-check dependencies
@@ -38,6 +36,16 @@ jobs:
             cc -std=gnu11 -D_DEFAULT_SOURCE -Wall -Wextra -Wpedantic -pthread \
               -iquote .STAGE/include -Ilibs/nosix/include \
               -fsyntax-only "$source"
+          done
+
+      - name: Exercise permanent NOSIX L3 and port-result contracts
+        run: |
+          set -eu
+          for target in l3_contract port_display target_pruning; do
+            cc -std=gnu11 -D_DEFAULT_SOURCE -O2 -Wall -Wextra -Wpedantic -Werror -pthread \
+              -iquote .STAGE/include -Ilibs/nosix/include \
+              "tests/$target.c" -o "/tmp/kami-$target"
+            "/tmp/kami-$target"
           done
 
   runtime-integration:

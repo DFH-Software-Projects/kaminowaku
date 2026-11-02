@@ -1,5 +1,5 @@
 // Copyright 2026 Jamison A. Drapeau
-// Phase 4: public NOSIX L3 status, surface mapping and mixed-PCAP RX proof.
+// Release 0.3.1: public NOSIX L3 status, surface mapping and mixed-PCAP RX proof.
 #define _POSIX_C_SOURCE 200809L
 #include "kwire.h"
 #include <assert.h>
@@ -28,7 +28,7 @@ int main(void) {
         KPCAP base;
         KPCAP_GLOBAL_HEADER header;
         KPCAP_PACKET_HEADER packet_header;
-        char folder[] = "/tmp/kami-betav3-XXXXXX";
+        char folder[] = "/tmp/kami-l3-XXXXXX";
         char sibling[MAX_PATH];
         char check[sizeof(ipv4)];
         FILE *fh;
@@ -84,6 +84,6 @@ int main(void) {
         fclose(fh);
         remove(sibling);
         rmdir(folder);
-        puts("BetaV3 NOSIX L3 mappings and mixed-link PCAP: PASS");
+        puts("NOSIX 1.5 L3 mappings and mixed-link PCAP: PASS");
         return 0;
 }

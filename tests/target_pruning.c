@@ -1,5 +1,5 @@
 // Copyright 2026 Jamison A. Drapeau
-// BetaV3 Phase 5: targets del -n must remain fail-closed for each IP family.
+// Release 0.3.1: targets del -n must remain fail-closed for each IP family.
 #include "targets_neighbor_filter.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -7,7 +7,7 @@
 #include <string.h>
 
 _Static_assert(sizeof(TARGET_SCAN_DATA) == LAST_BLOCK,
-        "Phase 5 must not change the TARGET scan storage layout");
+        "Release 0.3.1 must not change the TARGET scan storage layout");
 _Static_assert(SCAN_RESULT_L3_FALLBACK == (1U << 6),
         "Unexpected NOSIX L3 result bit");
 
@@ -115,11 +115,11 @@ int main(void) {
 
         free(t);
         if (ERRORS != 0) {
-                fprintf(stderr, "BetaV3 Phase 5: %d/%d target-pruning checks FAILED\n",
+                fprintf(stderr, "Kaminowaku 0.3.1: %d/%d target-pruning checks FAILED\n",
                         ERRORS, TESTS);
                 return 1;
         }
 
-        printf("BetaV3 Phase 5: %d target-pruning checks PASSED\n", TESTS);
+        printf("Kaminowaku 0.3.1: %d target-pruning checks PASSED\n", TESTS);
         return 0;
 }

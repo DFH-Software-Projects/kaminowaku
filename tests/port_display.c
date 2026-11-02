@@ -78,7 +78,7 @@ int main(void) {
                 failed++;
         }
         if (failed != 0) return 1;
-        printf("BetaV3 port display: %zu filter/connection cases PASS\n",
+        printf("Kaminowaku 0.3.1 port display: %zu filter/connection cases PASS\n",
                 sizeof(CASES) / sizeof(CASES[0]));
         return 0;
 }
