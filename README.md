@@ -227,7 +227,7 @@ ui mode frame
 
 The terminal input decoder supports fragmented escape sequences, navigation/editing keys, mouse-wheel scrolling and bracketed paste. KUI owns prompt painting and screen updates through an ordered event queue and differential screen renderer. Interactive external tools use a dedicated PTY handoff so their terminal state is restored when control returns to Kaminowaku. `debug on/off` controls debugging; it is not the display-mode switch.
 
-For implementation details see the [TUI architecture and control flow](docs/LINK_GRAPH.md#ui-and-rendering-path). Kaminowaku 0.3.1 carries its own Book/L3 regression tests in the source tree and runs them in CI. Interactive terminal acceptance remains necessary; historical TUI development checks remain available on the [`beta-v2` branch](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests).
+For implementation details see the [TUI architecture and control flow](docs/LINK_GRAPH.md#ui-and-rendering-path). The 0.3.1 release tree excludes the temporary and development-only test harnesses. CI validates release metadata and builds both supported native platforms; interactive terminal and Book acceptance remains necessary; historical TUI development checks remain available on the [`beta-v2` branch](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests).
 
 ## Workflow
 
@@ -667,7 +667,7 @@ Book locations:
 
 Book names may contain letters, numbers, hyphens, and underscores.
 
-For the supported Lua language, module model, runtime restrictions, and Book authoring interface, see [BOOK_LANGUAGE_V1.md](docs/BOOK_LANGUAGE_V1.md). For authorized live Book, packet-capture and storage acceptance, see the [0.3.1 release checklist](docs/RELEASE_ACCEPTANCE.md).
+For the supported Lua language, module model, runtime restrictions, and Book authoring interface, see [BOOK_LANGUAGE_V1.md](docs/BOOK_LANGUAGE_V1.md). For authorized live Book, packet-capture and storage acceptance, verify the behaviors described in the [Book language guide](docs/BOOK_LANGUAGE_V1.md) on your own lab targets.
 
 ## External tools
 
@@ -951,10 +951,11 @@ The build uses a generated `.STAGE/` tree for header projection, object files, m
 ## Developer documentation
 
 - [Source link graph](docs/LINK_GRAPH.md) — 0.3.1 source ownership, Book argument/help dispatch, TUI event/renderer control flow, compile/link relationships and change-impact mapping.
-- [0.3.1 CI workflows](.github/workflows/) — Book argument/help, Lua integration, L3/port-policy contracts, and Linux/FreeBSD native builds.
-- [Release acceptance checklist](docs/RELEASE_ACCEPTANCE.md) — manual authorized network, PCAP, Book help, persistence and failure-path checks. Historical [TUI development regressions](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests) remain reference material.
-- [Book language reference](docs/BOOK_LANGUAGE_V1.md) — supported Lua syntax, Book/module authoring contract, runtime boundaries, and guidance for Books versus external tools/scripts.
-- [Hard timeout guarantees](docs/HARD_TIMEOUTS.md) — monotonic receive deadlines, Book execution limits, regression checks, and native NOSIX rebuild requirements.
+- [Native build CI](.github/workflows/native-build.yml) — release-version and packaged dependency checks plus Linux/FreeBSD amd64 builds.
+- [Book language reference](docs/BOOK_LANGUAGE_V1.md) — runtime contract, help metadata, Book I/O, capture and durable output expectations.
+- [Release packaging](release/README.md) — native dependencies, offline/online builds, and release validation.
+
+Historical [TUI development regressions](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests) remain separate reference material and are not bundled with the 0.3.1 release source.
 
 ## Contributing
 

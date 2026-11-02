@@ -330,7 +330,7 @@ Help metadata is informational, not a runtime argument schema or input filter: u
 
 The built-in `ssh-kex` menu describes `--port` (default **22**); `web-enum` describes `--port` (**443**), `--path` (**/**), and `--tls` (**true**); `cve-2026-110264` describes `--port` (**80**), `--path` (**/users/sign_in**), `--tls` (**false**), and `--timeout` (active profile/native default). Each receives `--help` automatically. The GitLab assessment is an unauthenticated HTTP fingerprint, **not exploitation**.
 
-Permanent C regression tests `tests/book_args_test.c` and `tests/book_args_runtime_test.c` validate argument parsing, Lua argument transfer and non-executing help metadata; test Lua fixtures are under `tests/fixtures/`. These tests run in CI. Follow [the 0.3.1 release acceptance guide](RELEASE_ACCEPTANCE.md) for actual target network/PCAP and persistence checks; temporary Python fixture scripts are not shipped.
+The core parser enforces the reserved `--help` switch before a session can start, while the static Book metadata reader provides the menu without evaluating Book Lua. Temporary regression fixtures and network emulators are not distributed with the 0.3.1 release source. Operators should verify help, real network transactions, PCAP creation, and `.out` retention on authorized lab targets before release.
 
 ## Reusable modules
 
@@ -1358,7 +1358,7 @@ When changing named parameters or Book help, inspect:
 - [`src/books/book_args.c`](../src/books/book_args.c) and [`src/books/book_args.h`](../src/books/book_args.h)
 - [`src/books/book_help.c`](../src/books/book_help.c) and [`src/books/book_help.h`](../src/books/book_help.h)
 - [`src/books/books.c`](../src/books/books.c), [`src/books/book_runtime.c`](../src/books/book_runtime.c), and [`src/command/help.c`](../src/command/help.c)
-- shipped [system Book declarations](../books/), `tests/book_args_test.c`, `tests/book_args_runtime_test.c`, and the [release checklist](RELEASE_ACCEPTANCE.md)
+- shipped [system Book declarations](../books/), the [source graph](LINK_GRAPH.md), and the [native release procedure](../release/README.md)
 
 When changing the public Lua API, inspect:
 

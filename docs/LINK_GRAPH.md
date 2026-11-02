@@ -49,9 +49,7 @@ kaminowaku/
 │   └── cve-2026-110264.lua
 ├── docs/
 │   ├── BOOK_LANGUAGE_V1.md
-│   ├── LINK_GRAPH.md
-│   ├── RELEASE_ACCEPTANCE.md
-│   └── HARD_TIMEOUTS.md
+│   └── LINK_GRAPH.md
 ├── src/
 │   ├── books/              Book parser/runtime/session/persistence
 │   ├── command/            Command dispatch and help
@@ -71,8 +69,7 @@ kaminowaku/
 │   ├── kaminowaku.c        Main runtime/state-machine loop
 │   ├── kaminowaku.h
 │   └── main.c              Process entrypoint
-├── .github/workflows/      Native builds and permanent Book/L3 contract CI
-├── tests/                  Book and L3 C regressions, Lua fixtures
+├── .github/workflows/      Native Linux/FreeBSD builds and version gates
 ├── scripts/                Release-version consistency guard
 ├── default.ini             Shipped global profile
 ├── Makefile
@@ -486,13 +483,11 @@ The default display mode is **continuous**. `ui` reports the current mode; `ui m
 
 `kui_enter()` establishes alternate-screen/mouse state and starts the renderer. The PTY path in [`tool_pty.c`](../src/tools/tool_pty.c) calls `kui_fork_prepare()` and `kui_fork_parent()` around process creation, avoiding inherited renderer state across the fork. `kui_exit()` drains accepted events, stops and joins the renderer, restores the terminal, then closes the UI queue. Do not write to the terminal concurrently from input, worker or tool code while KUI owns it.
 
-## TUI regression and CI path
+## TUI verification and native CI path
 
-The 0.3.1 branch retains **permanent C regression tests** in `tests/`: `book_args_test.c`, `book_args_runtime_test.c`, `l3_contract.c`, `port_display.c` and `target_pruning.c`. The Lua fixtures under `tests/fixtures/` exercise argument transfer and literal metadata inspection without executing the remainder of a help-only Book.
+The 0.3.1 release source intentionally excludes the retired BetaV3 tests and temporary Book lab fixtures. The active [native build workflow](../.github/workflows/native-build.yml) checks version/dependency consistency and compiles the complete scanner for Linux amd64 and FreeBSD 14.5 amd64. The [release-version gate](../scripts/check-release-versions.sh) also guards the native packaging path.
 
-The [0.3.1 Book contract workflow](../.github/workflows/beta-031-book-args.yml) exercises those C/Lua contracts and source syntax. The [native build workflow](../.github/workflows/native-build.yml) builds Linux amd64 and FreeBSD 14.5 amd64. Temporary Python fixture servers/verifiers and the old BetaV3 staging preflight are **not shipped**. Actual scanner traffic, TUI acceptance and target persistence still require [manual release acceptance](RELEASE_ACCEPTANCE.md).
-
-Historical `beta-v2` TUI development regressions are an additional reference, not a substitute for testing the 0.3.1 binary.
+Build success is **not equivalent to live Book acceptance**: verify `book <name> --help` without a project, real Book execution on an authorized service, PCAP evidence, `.out` retention after BAIL, and target display on both supported operating systems. The [Book language reference](BOOK_LANGUAGE_V1.md) documents those contracts. Historical `beta-v2` TUI development material is not part of the 0.3.1 release source.
 
 ## Build-time link path
 
@@ -620,8 +615,8 @@ This is the practical inverse of the link graph: start with the boundary being c
 | TCP/UDP scan behavior | `kportscan.c`, protocol file, `kscan*`, `kwire.h`, persistence/display |
 | Banner/service enrichment | `kbanner.c`, scan result structures, `kportdisplay.c` |
 | Book language syntax | lexer, parser, runtime, stdlib/module/native layers, Book language documentation |
-| Book named arguments | `book_args.c`, `books.c`, `book_runtime.c`, Book regression tests and docs |
-| Book `--help` / static metadata | `books.c`, `book_help.c`, `book_parser.c`, shipped Lua declarations and native runtime tests |
+| Book named arguments | `book_args.c`, `books.c`, `book_runtime.c`, Book language documentation |
+| Book `--help` / static metadata | `books.c`, `book_help.c`, `book_parser.c`, shipped Lua declarations and Book language documentation |
 | Book network primitive | `book_native.c`, `book_session.c`, audit, output, PCAP lifecycle |
 | Book result persistence | `book_output.c`, `book_persist.c`, `books.c`, target display |
 | Book core module | `books/main/`, native private ABI if required, installer asset checks |
