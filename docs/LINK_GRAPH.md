@@ -45,10 +45,13 @@ kaminowaku/
 │   ├── main/               Trusted public kami.* modules
 │   ├── modules/            Reusable protocol modules
 │   ├── ssh-kex.lua
-│   └── web-enum.lua
+│   ├── web-enum.lua
+│   └── cve-2026-110264.lua
 ├── docs/
 │   ├── BOOK_LANGUAGE_V1.md
-│   └── LINK_GRAPH.md
+│   ├── LINK_GRAPH.md
+│   ├── RELEASE_ACCEPTANCE.md
+│   └── HARD_TIMEOUTS.md
 ├── src/
 │   ├── books/              Book parser/runtime/session/persistence
 │   ├── command/            Command dispatch and help
@@ -68,7 +71,9 @@ kaminowaku/
 │   ├── kaminowaku.c        Main runtime/state-machine loop
 │   ├── kaminowaku.h
 │   └── main.c              Process entrypoint
-├── .github/workflows/      Native Linux and FreeBSD build verification
+├── .github/workflows/      Native builds and permanent Book/L3 contract CI
+├── tests/                  Book and L3 C regressions, Lua fixtures
+├── scripts/                Release-version consistency guard
 ├── default.ini             Shipped global profile
 ├── Makefile
 ├── install.sh
@@ -326,47 +331,49 @@ Supporting scan infrastructure:
 
 ## Book execution path
 
-Books have a separate language/runtime stack, but their network and evidence lifecycle remains native and bounded.
+Kaminowaku 0.3.1 has **two disjoint Book routes**: static help inspection (no project, Lua execution, PCAP or network transport), and real Book execution (argument validation followed by a native capture-gated session).
 
 ```mermaid
 flowchart TD
-    A["cmd_scan.c<br/>book"] --> B["books_try_run()"]
-    B --> C{"Context"}
-    C -->|Project| D["books_run_project()"]
-    C -->|Target| E["books_run_one()"]
-    D --> E
-
-    E --> F["books_resolve()"]
-    E --> G["books_session_prepare()"]
-    G --> H["PCAP / capture session"]
-
-    E --> I["books_execute()"]
-    I --> J["book_lexer.c"]
-    J --> K["book_parser.c"]
-    K --> L["book_runtime.c"]
-
-    L --> M["book_stdlib.c"]
-    L --> N["book_module.c"]
-    L --> O["book_native.c"]
-
-    O --> P["book_session.c<br/>TCP / UDP / payload"]
-    P --> Q["NOSIX"]
-
-    O --> R["book_tls.c"]
-    R --> S["OpenSSL"]
-
-    O --> T["book_output.c<br/>stage result records"]
-
-    I --> U["runtime termination state"]
-    U --> V["books_session_capture_drain()"]
-    V --> W["books_session_finalize()"]
-
-    W --> X{"COMPLETE?"}
-    X -->|Yes| Y["book_output_commit()<br/>atomic BOOKNAME.out"]
-    X -->|No| Z["book_output_discard()<br/>previous .out preserved"]
-
-    W --> AA["PCAP retained"]
+    A["cmd_scan.c: book"] --> B["books_try_run()"]
+    B --> HELPFLAG{"book --help?"}
+    HELPFLAG -->|Yes| LIST["Print standard help and Book list"]
+    HELPFLAG -->|No| PARSE["book_args_parse(): book_args.c"]
+    PARSE --> VALID{"Argument result?"}
+    VALID -->|Error| ERR["Print usage; no PCAP"]
+    VALID -->|BOOK_ARGS_HELP| RESOLVEHELP["books_resolve()"]
+    RESOLVEHELP --> STATIC["book_help_read(): book_help.c<br/>parse literal Lua AST metadata"]
+    STATIC --> MENU["Display Book help; no Lua execution"]
+    VALID -->|Run| PROJECT{"Active project?"}
+    PROJECT -->|No| STOP["Report missing project"]
+    PROJECT -->|Yes| SCOPE{"Project or target context?"}
+    SCOPE -->|Project| MANY["books_run_project()"]
+    SCOPE -->|Target| ONE["books_run_one()"]
+    MANY --> ONE
+    ONE --> PREP["books_session_prepare()"]
+    PREP --> CAPTURE["Native PCAP session"]
+    ONE --> EXEC["books_execute()"]
+    EXEC --> LEX["book_lexer.c"]
+    LEX --> AST["book_parser.c"]
+    AST --> RUNTIME["book_runtime.c<br/>Lua args table of strings"]
+    RUNTIME --> STDLIB["book_stdlib.c"]
+    RUNTIME --> MODULE["book_module.c"]
+    RUNTIME --> NATIVE["book_native.c"]
+    NATIVE --> NET["book_session.c: TCP / UDP"]
+    NET --> NOSIX["NOSIX ABI 1.5.0"]
+    NATIVE --> TLS["book_tls.c"]
+    TLS --> SSL["OpenSSL"]
+    NATIVE --> OUTPUT["book_output.c: staged records"]
+    EXEC --> DRAIN["Capture drain / finalization"]
+    DRAIN --> DONE{"COMPLETE?"}
+    DONE -->|Yes| SAVE["Atomic BOOKNAME.out commit"]
+    DONE -->|No| DISCARD["Preserve old .out; discard new staged data"]
+    DRAIN --> PCAP["Retain executed session PCAP"]
 ```
+
+The `book --help` switch lists Books. `book <name> --help` is reserved and valueless, resolved before project checks, and handled by `book_help.c` through literal declaration fields (`name`, `description`, `options`). Books without optional metadata receive generic help. A failed metadata read never requires running the source.
+
+For real execution, `book_args.c` validates bounded `--key value` and `--key=value` parameters before session/capture creation. `book_runtime.c` injects those strings into the global Lua `args` table, independently for each project target. The Lua declaration remains runtime-validated, but help metadata is not a runtime argument schema. See [the Book language contract](BOOK_LANGUAGE_V1.md#book-help-and-option-documentation) and [release acceptance](RELEASE_ACCEPTANCE.md).
 
 ### Book source/runtime relationship
 
@@ -481,9 +488,11 @@ The default display mode is **continuous**. `ui` reports the current mode; `ui m
 
 ## TUI regression and CI path
 
-The permanent C regression suite and benchmark runner are retained in the [`beta-v2` development branch](https://github.com/DFH-Software-Projects/kaminowaku/tree/beta-v2/tests), not in `main`. The [beta-v2 test README](https://github.com/DFH-Software-Projects/kaminowaku/blob/beta-v2/tests/README.md) documents the suite and interactive Linux/FreeBSD acceptance scenarios.
+The 0.3.1 branch retains **permanent C regression tests** in `tests/`: `book_args_test.c`, `book_args_runtime_test.c`, `l3_contract.c`, `port_display.c` and `target_pruning.c`. The Lua fixtures under `tests/fixtures/` exercise argument transfer and literal metadata inspection without executing the remainder of a help-only Book.
 
-The `main` branch runs [native Linux/FreeBSD build verification](../.github/workflows/native-build.yml) without bundling the test sources. To run development regressions, check out `beta-v2` and execute `sh tests/run-tui-regressions.sh`; real-terminal acceptance is still required.
+The [0.3.1 Book contract workflow](../.github/workflows/beta-031-book-args.yml) exercises those C/Lua contracts and source syntax. The [native build workflow](../.github/workflows/native-build.yml) builds Linux amd64 and FreeBSD 14.5 amd64. Temporary Python fixture servers/verifiers and the old BetaV3 staging preflight are **not shipped**. Actual scanner traffic, TUI acceptance and target persistence still require [manual release acceptance](RELEASE_ACCEPTANCE.md).
+
+Historical `beta-v2` TUI development regressions are an additional reference, not a substitute for testing the 0.3.1 binary.
 
 ## Build-time link path
 
@@ -570,7 +579,9 @@ The following tables list the **direct Kaminowaku headers included by each imple
 
 | Implementation | Direct local links |
 | --- | --- |
-| [`books.c`](../src/books/books.c) | `books.h`, `book_session.h`, `book_exec.h`, `book_output.h`, `book_persist.h`, `book_audit.h`, `tlib.h`, `kui.h` |
+| [`books.c`](../src/books/books.c) | `books.h`, `book_help.h`, `book_session.h`, `book_exec.h`, `book_output.h`, `book_persist.h`, `book_audit.h`, `tlib.h`, `kui.h` |
+| [`book_args.c`](../src/books/book_args.c) | `book_args.h` |
+| [`book_help.c`](../src/books/book_help.c) | `book_help.h`, `book_parser.h` |
 | [`book_core.c`](../src/books/book_core.c) | `book_core.h` |
 | [`book_audit.c`](../src/books/book_audit.c) | `book_audit.h`, `helpers.h` |
 | [`book_exec.c`](../src/books/book_exec.c) | `book_exec.h`, `book_audit.h`, `book_runtime.h`, `kui.h` |
@@ -609,6 +620,8 @@ This is the practical inverse of the link graph: start with the boundary being c
 | TCP/UDP scan behavior | `kportscan.c`, protocol file, `kscan*`, `kwire.h`, persistence/display |
 | Banner/service enrichment | `kbanner.c`, scan result structures, `kportdisplay.c` |
 | Book language syntax | lexer, parser, runtime, stdlib/module/native layers, Book language documentation |
+| Book named arguments | `book_args.c`, `books.c`, `book_runtime.c`, Book regression tests and docs |
+| Book `--help` / static metadata | `books.c`, `book_help.c`, `book_parser.c`, shipped Lua declarations and native runtime tests |
 | Book network primitive | `book_native.c`, `book_session.c`, audit, output, PCAP lifecycle |
 | Book result persistence | `book_output.c`, `book_persist.c`, `books.c`, target display |
 | Book core module | `books/main/`, native private ABI if required, installer asset checks |
@@ -648,6 +661,6 @@ Book TLS path
 
 Keeping those ownership boundaries intact prevents network behavior from leaking into command/UI code and prevents the Book runtime from creating an independent unmanaged network stack.
 
-## Vendored dependency packaging (Phase 1)
+## Vendored dependency packaging (0.3.1)
 
 `libs/nosix/` contains the licensed Linux/FreeBSD amd64 NOSIX ABI, including public headers and manifests. `libs/openssl/` contains the pinned OpenSSL 3.5.9 source, matching native static libraries, generated per-OS headers and license. The `--offline` mode uses only the pinned static OpenSSL archives and clean source build of Kaminowaku against the verified native static libraries; it neither discovers system OpenSSL nor calls a package manager. The developer-only `libs/openssl/build-native.sh` prepares static OpenSSL from a verified source archive. The `--online` mode does **not** require the vendored OpenSSL archive or libraries: it optionally acquires missing prerequisites with the host package manager and compiles Kaminowaku against OS-managed OpenSSL 3 shared libraries using pkg-config/pkgconf. Both paths stage NOSIX privately, retain license and ABI integrity checks, and avoid global NOSIX/SSL replacements.
