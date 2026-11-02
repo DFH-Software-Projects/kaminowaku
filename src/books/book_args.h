@@ -5,6 +5,7 @@
 #include <stddef.h>
 
 // @@ One invocation's bounded named parameters. Values reach Lua as strings.
+#define BOOK_ARGS_HELP        1
 #define BOOK_ARGS_LIMIT       16U
 #define BOOK_ARG_NAME_BLOCK   64U
 #define BOOK_ARG_VALUE_BLOCK  512U
@@ -21,7 +22,8 @@ typedef struct BOOK_ARGUMENTS {
 
 // Parse the original command (not the generic whitespace-only cmd_tokens).
 // Accepted forms: --key value, --key=value, and quoted values.
-// Returns 0 on success and -1 on invalid input, before any capture starts.
+// Returns 0 on regular invocation, BOOK_ARGS_HELP for standalone --help,
+// and -1 for invalid input. The caller handles help before any capture.
 int book_args_parse(
         const char * command,
         const char * expected_book_name,

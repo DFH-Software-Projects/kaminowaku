@@ -134,9 +134,26 @@ int book_args_parse(
                         return book_args_error(error, error_size, "Expected a named Book parameter (--name value).");
                 }
 
+                // --help is reserved by the core, is valueless, and must be
+                // the only argument. It never reaches a Lua Book.
+                if (strcmp(token, "--help") == 0) {
+                        if (arguments->count != 0) {
+                                return book_args_error(error, error_size, "--help cannot be combined with Book parameters.");
+                        }
+                        status = book_args_word(&cursor, token, sizeof(token), error, error_size);
+                        if (status < 0) return -1;
+                        if (status != 0) {
+                                return book_args_error(error, error_size, "--help must be the only Book parameter.");
+                        }
+                        return BOOK_ARGS_HELP;
+                }
+
                 name = token + 2;
                 separator = strchr(token + 2, '=');
                 if (separator) *separator = '\0';
+                if (strcmp(name, "help") == 0) {
+                        return book_args_error(error, error_size, "--help does not accept a value.");
+                }
                 if (!book_args_valid_name(name)) {
                         return book_args_error(error, error_size, "Invalid Book parameter name.");
                 }

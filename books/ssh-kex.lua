@@ -1,7 +1,11 @@
 -- Copyright 2026 Jamison A. Drapeau
 -- ssh-kex.lua - Enumerate SSH transport identification and KEXINIT algorithms.
 book {
-        name = "ssh-kex"
+        name = "ssh-kex",
+        description = "Enumerate SSH identification and key-exchange algorithms.",
+        options = {
+                port = "Destination TCP port (default 22; valid 1-65535)."
+        }
 }
 
 local ssh = require("modules.ssh")

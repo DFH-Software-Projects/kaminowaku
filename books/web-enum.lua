@@ -1,7 +1,13 @@
 -- Copyright 2026 Jamison A. Drapeau
 -- web-enum.lua - HTTPS service enumeration Book.
 book {
-        name = "web-enum"
+        name = "web-enum",
+        description = "Enumerate HTTP(S) status, headers and response metadata.",
+        options = {
+                port = "Destination TCP port (default 443; valid 1-65535).",
+                path = "Request path beginning with / (default /).",
+                tls = "Use TLS: true or false (default true)."
+        }
 }
 
 local http = require("modules.http")

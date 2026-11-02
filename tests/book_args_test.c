@@ -17,6 +17,14 @@ static void good(const char * command, size_t count) {
         assert(args.count == count);
 }
 
+static void good_help(const char * command) {
+        memset(&args, 0xa5, sizeof(args));
+        memset(error, 0xa5, sizeof(error));
+        assert(book_args_parse(command, "web-enum", &args, error, sizeof(error)) == BOOK_ARGS_HELP);
+        assert(args.count == 0);
+        assert(error[0] == '\0');
+}
+
 static void bad(const char * command) {
         assert(book_args_parse(command, "web-enum", &args, error, sizeof(error)) != 0);
         assert(error[0] != '\0');
@@ -47,6 +55,15 @@ int main(void) {
         assert(strcmp(args.items[1].value, "") == 0);
         good("book web-enum --escaped \"a\\\"b\\\\c\"", 1);
         assert(strcmp(args.items[0].value, "a\"b\\c") == 0);
+
+        // Reserved, valueless --help is implemented for every Book.
+        good_help("book web-enum --help");
+        good_help("  book web-enum --help  ");
+        bad("book web-enum --help=true");
+        bad("book web-enum --help true");
+        bad("book web-enum --port 8443 --help");
+        bad("book web-enum --help --port 8443");
+        bad("book web-enum --help --help");
 
         // Reject malformed keys, missing values, duplicates, and positional args.
         bad("book web-enum --port");
