@@ -370,7 +370,7 @@ flowchart TD
 
 The `book --help` switch lists Books. `book <name> --help` is reserved and valueless, resolved before project checks, and handled by `book_help.c` through literal declaration fields (`name`, `description`, `options`). Books without optional metadata receive generic help. A failed metadata read never requires running the source.
 
-For real execution, `book_args.c` validates bounded `--key value` and `--key=value` parameters before session/capture creation. `book_runtime.c` injects those strings into the global Lua `args` table, independently for each project target. The Lua declaration remains runtime-validated, but help metadata is not a runtime argument schema. See [the Book language contract](BOOK_LANGUAGE_V1.md#book-help-and-option-documentation) and [release acceptance](RELEASE_ACCEPTANCE.md).
+For real execution, `book_args.c` validates bounded `--key value` and `--key=value` parameters before session/capture creation. `book_runtime.c` injects those strings into the global Lua `args` table, independently for each project target. The Lua declaration remains runtime-validated, but help metadata is not a runtime argument schema. See [the Book language contract](BOOK_LANGUAGE_V1.md#book-help-and-option-documentation) and verify live transport/PCAP behavior on authorized test targets.
 
 ### Book source/runtime relationship
 
