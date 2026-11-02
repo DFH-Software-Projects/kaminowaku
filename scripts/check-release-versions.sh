@@ -21,6 +21,10 @@ contains SECURITY.md "| $APP_VERSION (current beta;"
 contains docs/BOOK_LANGUAGE_V1.md "Kaminowaku $APP_VERSION."
 contains docs/LINK_GRAPH.md "Kaminowaku $APP_VERSION beta implementation"
 contains release/README.md "Kaminowaku **$APP_VERSION**"
+contains docs/RELEASE_ACCEPTANCE.md "# Kaminowaku $APP_VERSION"
+contains docs/LINK_GRAPH.md "book_args_parse()"
+contains docs/LINK_GRAPH.md "book_help_read()"
+contains docs/BOOK_LANGUAGE_V1.md "Book help and option documentation"
 
 LOCK="libs/openssl/source/openssl.lock"
 [ -s "$LOCK" ] || fail "Pinned OpenSSL source lock missing"
@@ -56,6 +60,25 @@ for platform in linux freebsd; do
     contains "libs/nosix/$platform/abi.env" "REAL_NAME=libnosix.so.1.5.0"
     [ -s "libs/nosix/$platform/lib/libnosix.so.1.5.0" ] ||
         fail "Missing $platform NOSIX 1.5.0 runtime"
+done
+
+# Keep one-off fixture/staging scripts and obsolete lab instructions out of
+# the publishable source tree. Permanent C/Lua regression tests are retained.
+for removed in scripts/beta031_book_lab.py tests/test_beta031_book_lab.py \
+    scripts/betav3-preflight.sh .github/workflows/betav3-l3-compile.yml \
+    docs/BETA_031_LAB.md; do
+    [ ! -e "$removed" ] || fail "Temporary release artifact returned: $removed"
+done
+for persistent in tests/book_args_test.c tests/book_args_runtime_test.c \
+    tests/l3_contract.c tests/port_display.c tests/target_pruning.c \
+    tests/fixtures/arg-smoke.lua tests/fixtures/help-noexec.lua; do
+    [ -s "$persistent" ] || fail "Permanent regression asset missing: $persistent"
+done
+for document in README.md docs/LINK_GRAPH.md docs/BOOK_LANGUAGE_V1.md \
+    docs/HARD_TIMEOUTS.md docs/RELEASE_ACCEPTANCE.md release/README.md; do
+    if grep -En 'BETA_031_LAB|beta031_book_lab|test_beta031_book_lab|betav3-preflight' "$document"; then
+        fail "Current documentation points to retired tooling: $document"
+    fi
 done
 
 # Historical changelog entries and archived BetaV3 design notes are exempt.
