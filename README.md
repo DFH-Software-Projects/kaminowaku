@@ -614,7 +614,19 @@ List available system and user Books:
 
 ```text
 book
+book --help
 ```
+
+Every Book has a built-in help menu, including custom user Books:
+
+```text
+book ssh-kex --help
+book web-enum --help
+book cve-2026-110264 --help
+book <book-name> --help
+```
+
+Help is available without loading a project, never executes a Book or starts PCAP capture, and cannot be combined with other arguments. Shipped Books document their port defaults, paths, TLS and timeout settings in their `book { ... }` declarations; third-party Books receive default help even without custom metadata.
 
 Run a Book:
 

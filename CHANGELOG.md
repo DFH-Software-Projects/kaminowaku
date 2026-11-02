@@ -9,6 +9,7 @@ Kaminowaku is currently pre-1.0. Entries document release baselines and developm
 ### Added
 - Book named-argument parsing, quoting, bounds and duplicate validation.
 - Lua `args` tables for operator-configurable Book parameters.
+- Universal capture-free `book --help` and `book <name> --help` menus, with declarative, optional per-Book help metadata and default help for user Books.
 - Configurable ports for all shipped Books; HTTP Book path/TLS/timeout options.
 - Argument regression tests and beta-specific CI.
 - Local SSH, HTTP, and synthetic GitLab lab fixtures, evidence verifier, and operator acceptance checklist.

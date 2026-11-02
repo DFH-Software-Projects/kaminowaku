@@ -14,6 +14,7 @@ This document describes only the **current supported interface and behavior**.
 - [Source and installation layout](#source-and-installation-layout)
 - [Executable Books](#executable-books)
 - [Book invocation parameters](#book-invocation-parameters)
+- [Book help and option documentation](#book-help-and-option-documentation)
 - [Reusable modules](#reusable-modules)
 - [Trusted `kami.*` modules](#trusted-kami-modules)
 - [External tools and executable scripts](#external-tools-and-executable-scripts)
@@ -260,7 +261,7 @@ The global is also visible to imported modules. For names containing hyphens, us
 ### Parsing contract
 
 - Both `--key value` and `--key=value` work. Single and double quoted values support embedded spaces; within quotes, backslashes can escape a matching quote or a backslash.
-- Each parameter requires a value (explicit `--verbose true` rather than a valueless flag). An empty value is accepted with `--label=""`. Use the equals form for values beginning with `--`, such as `--literal=--example`.
+- Each ordinary parameter requires a value (explicit `--verbose true` rather than a valueless flag); `--help` is the reserved, valueless exception. An empty value is accepted with `--label=""`. Use the equals form for values beginning with `--`, such as `--literal=--example`.
 - Names are case-sensitive, start with an ASCII letter or underscore, and then contain ASCII letters, digits, underscores or hyphens. Max name length: **63 bytes**.
 - Max value length: **511 bytes**. Max parameters per invocation: **16**.
 - Duplicate names, malformed arguments, excess lengths/counts, unexpected positional arguments and unclosed quotes fail **before creating a capture session**.
@@ -277,6 +278,49 @@ The global is also visible to imported modules. For names containing hyphens, us
 | `cve-2026-110264` | 80 | `--port`, `--path`, `--tls true|false`, `--timeout` |
 
 `--timeout` is measured in milliseconds and cannot exceed the native hard or active profile maximum. The GitLab assessment now leaves the timeout unspecified when omitted, allowing the active profile/native timeout to be used instead of forcing a 4,000 ms value. Existing protocol ports and request paths remain unchanged for no-argument runs.
+
+## Book help and option documentation
+
+**Every Book supports** `--help` as a reserved, valueless switch, including third-party Books that do not document any options. This is provided by the Kaminowaku command dispatcher; it does not call the Lua runtime or require authors to implement a conditional branch.
+
+```text
+book --help
+book ssh-kex --help
+book web-enum --help
+book cve-2026-110264 --help
+book my-check --help
+```
+
+- `book --help` shows the Book command syntax and lists available system/user Books.
+- `book <book-name> --help` shows the standard usage and `--help` option, plus any Book-specific description and option documentation.
+- Help works **without an active project or target**. It **does not execute Lua**, connect to a host, start a capture session, create a PCAP, or update `.out` and target timestamps.
+- `--help` must be the **only argument** and never takes a value. `--help=true`, `--port 443 --help`, and `--help --port 443` are invalid.
+- All other named parameters still require values. `help` is reserved and is **not** exposed in the Lua `args` table.
+- The existing `b` command alias expands to `book`, so `b web-enum --help` also works.
+
+### Declare Book-specific help
+
+Authors can place **literal**, optional `description` and `options` fields directly in the Book declaration. Keys inside `options` are argument names **without** the leading `--`; each value is the displayed explanation, including any default or constraints.
+
+```lua
+book {
+        name = "my-check",
+        description = "Check a selected service.",
+        options = {
+                port = "Destination TCP port (default 443).",
+                path = "HTTP request path (default /).",
+                ["custom-name"] = "A custom flag using bracket notation."
+        }
+}
+```
+
+Kaminowaku reads this metadata using **static Lua AST inspection**. It does not evaluate the declaration or execute the remainder of the source to display help. If metadata is absent or cannot be statically read, the **generic help menu still displays**. Help metadata must use literal strings and constant table entries: no computed values, expressions, or runtime variables. Keep descriptions short and single-line; printable ASCII, max **255 bytes per description**, **16 options**, **63-byte names**. The Book name must match the source file as usual.
+
+Help metadata is informational, not a runtime argument schema or input filter: unknown named arguments remain accepted by the core parser and interpreted by the Book author. The existing `book { name = "..." }` form remains valid, with no migration required.
+
+### Shipped help menus
+
+The built-in `ssh-kex` menu describes `--port` (default **22**); `web-enum` describes `--port` (**443**), `--path` (**/**), and `--tls` (**true**); `cve-2026-110264` describes `--port` (**80**), `--path` (**/users/sign_in**), `--tls` (**false**), and `--timeout` (active profile/native default).
 
 ## Reusable modules
 
